@@ -30,6 +30,7 @@
 uint8_t currentMode = 0x81;
 
 #define REG_FIFO                    0x00
+#define REG_FREQ                    0x06
 #define REG_FIFO_ADDR_PTR           0x0D 
 #define REG_FIFO_TX_BASE_AD         0x0E
 #define REG_FIFO_RX_BASE_AD         0x0F
@@ -245,9 +246,9 @@ void setLoRaMode(int Channel)
 	{
 		FrequencyValue = (unsigned long)(Frequency * 7110656 / 434);
 		// LogMessage("FrequencyValue = %06Xh\n", FrequencyValue);
-		writeRegister(Channel, 0x06, (FrequencyValue >> 16) & 0xFF);		// Set frequency
-		writeRegister(Channel, 0x07, (FrequencyValue >> 8) & 0xFF);
-		writeRegister(Channel, 0x08, FrequencyValue & 0xFF);
+		writeRegister(Channel, REG_FREQ,   (FrequencyValue >> 16) & 0xFF);
+		writeRegister(Channel, REG_FREQ + 1, (FrequencyValue >> 8) & 0xFF);
+		writeRegister(Channel, REG_FREQ + 2, FrequencyValue & 0xFF);
 	}
 
 	// LogMessage("Mode = %d\n", readRegister(Channel, REG_OPMODE));
@@ -314,7 +315,8 @@ void ShowPacketCounts(int Channel)
 
 double FrequencyError(int Channel)
 {
-	int32_t Temp;
+	double Offset;
+	int32_t Frequency, Temp;
 	
 	Temp = (int32_t)readRegister(Channel, REG_FREQ_ERROR) & 7;
 	Temp <<= 8L;
@@ -326,8 +328,24 @@ double FrequencyError(int Channel)
 	{
 		Temp = Temp - 524288;
 	}
+	Offset = - ((double)Temp * (1<<24) / 32000000.0) * (Config.LoRaDevices[Channel].Reference / 500000.0);
 
-	return - ((double)Temp * (1<<24) / 32000000.0) * (Config.LoRaDevices[Channel].Reference / 500000.0);
+	// Avoid unnecessary changes
+	if ((Offset > +450.0) || (Offset < -450.0))
+	{
+		Temp = (int32_t)readRegister(Channel, REG_FREQ);
+		Temp <<= 8;
+		Temp += (int32_t)readRegister(Channel, REG_FREQ + 1);
+		Temp <<= 8;
+		Temp += (int32_t)readRegister(Channel, REG_FREQ + 2);
+
+		// Frequency is not updated until AFTER rfm98 receives next packet.
+		Frequency = Temp + (int32_t)(0.005 * Offset);
+		writeRegister(Channel, REG_FREQ,   (Frequency >> 16) & 0xff);
+		writeRegister(Channel, REG_FREQ + 1, (Frequency >> 8) & 0xff);
+		writeRegister(Channel, REG_FREQ + 2, (Frequency >> 0) & 0xff);
+	}
+	return Offset;
 }	
 
 int receiveMessage(int Channel, unsigned char *message)
