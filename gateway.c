@@ -169,7 +169,7 @@ void LogMessage(const char *format, ...)
     va_list args;
     va_start(args, format);
 
-    vsprintf(Buffer, format, args);
+    vsnprintf(Buffer, 80, format, args);
 
     va_end(args);
 
@@ -185,7 +185,7 @@ void ChannelPrintf(int Channel, int row, int column, const char *format, ...)
     va_list args;
     va_start(args, format);
 
-    vsprintf(Buffer, format, args);
+    vsnprintf(Buffer, 40, format, args);
 
     va_end(args);
 
@@ -379,7 +379,7 @@ int receiveMessage(int Channel, unsigned char *message)
 		// LogMessage("%d bytes in packet\n", Bytes);
 
 		// LogMessage("RSSI = %d\n", readRegister(Channel, REG_PACKET_RSSI) - 137);
-		ChannelPrintf(Channel,  9, 1, "Packet   SNR = %4d   ", (char)(readRegister(Channel, REG_PACKET_SNR)) / 4);
+		ChannelPrintf(Channel,  9, 1, "Packet   SNR = %4d   ", (int8_t)(readRegister(Channel, REG_PACKET_SNR)) / 4);
 		ChannelPrintf(Channel, 10, 1, "Packet  RSSI = %4d   ", readRegister(Channel, REG_PACKET_RSSI) - 157);
 		ChannelPrintf(Channel, 11, 1, "Freq. Error = %4.1lfkHz ", FrequencyError(Channel) / 1000);
 
@@ -1078,8 +1078,8 @@ int main(int argc, char **argv)
 						}
 						else if (Message[1] == '$')
 						{
-							ChannelPrintf(Channel, 3, 1, "Telemetry %d bytes    ", strlen(Message)-1);	//  Bytes);
-							// LogMessage("Telemetry %d bytes\n", strlen(Message)-1);
+							ChannelPrintf(Channel, 3, 1, "Telemetry %d bytes    ", strlen(Message+1)-1);	//  Bytes);
+							// LogMessage("Telemetry %d bytes\n", strlen(Message+1)-1);
 															
 							UploadTelemetryPacket(Message+1);
 
