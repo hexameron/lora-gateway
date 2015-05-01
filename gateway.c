@@ -1244,7 +1244,7 @@ int main(int argc, char **argv)
 					}
 				}
 				
-				if (++LoopCount[Channel] > 1000000)
+				if (++LoopCount[Channel] > 4)
 				{
 					LoopCount[Channel] = 0;
 					ShowPacketCounts(Channel);
@@ -1256,7 +1256,7 @@ int main(int argc, char **argv)
 				}
 			}
 		}
-		// delay(5);
+		delay(100);
  	}
 
 	CloseDisplay(mainwin);
