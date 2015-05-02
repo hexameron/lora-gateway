@@ -605,7 +605,7 @@ void LoadConfigFile()
 	Config.ftpUser[0] = '\0';
 	Config.ftpPassword[0] = '\0';
 	Config.ftpFolder[0] = '\0';
-	Config.EnableKML = 0;
+	Config.LogLevel = 0;
 	
 	if ((fp = fopen(filename, "r")) == NULL)
 	{
@@ -624,7 +624,7 @@ void LoadConfigFile()
 	ReadString(fp, "ftpPassword", Config.ftpPassword, sizeof(Config.ftpPassword), 0);
 	ReadString(fp, "ftpFolder", Config.ftpFolder, sizeof(Config.ftpFolder), 0);	
 
-	ReadBoolean(fp, "EnableKML", 0, &Config.EnableKML);
+	Config.LogLevel = ReadInteger(fp, "LogLevel", 0, 0);
 
 	for (Channel=0; Channel<=1; Channel++)
 	{
@@ -709,14 +709,14 @@ void LoadConfigFile()
 			if ((Temp >= 6) && (Temp <= 12))
 			{
 				Config.LoRaDevices[Channel].SpreadingFactor = Temp << 4;
-				LogMessage("Setting SF=%d\n", Temp);
+				LogMessage("Setting SF=%d; ", Temp);
 			}
 
 			sprintf(Keyword, "bandwidth_%d", Channel);
 			ReadString(fp, Keyword, TempString, sizeof(TempString), 0);
 			if (*TempString)
 			{
-				LogMessage("Setting BW=%s\n", TempString);
+				LogMessage("Setting BW=%s; ", TempString);
 			}
 			if (strcmp(TempString, "7K8") == 0)
 			{
@@ -787,7 +787,7 @@ void LoadConfigFile()
 			if ((Temp >= 5) && (Temp <= 8))
 			{
 				Config.LoRaDevices[Channel].ErrorCoding = (Temp-4) << 1;
-				LogMessage("Setting Error Coding=%d\n", Temp);
+				LogMessage("Error Coding=%d; ", Temp);
 			}
 
 			sprintf(Keyword, "lowopt_%d", Channel);
@@ -798,6 +798,7 @@ void LoadConfigFile()
 					Config.LoRaDevices[Channel].LowDataRateOptimize = 0x08;
 				}
 			}
+			LogMessage("LowDataRate=%s\n", (Config.LoRaDevices[Channel].LowDataRateOptimize & 0x08)? "ON":"OFF");
 		}
 	}
 
@@ -1092,7 +1093,10 @@ int main(int argc, char **argv)
 							DoPositionCalcs(Channel);
 							
 							Config.LoRaDevices[Channel].TelemetryCount++;
-							if (Config.EnableKML)
+
+							if (LOG_TELEM & Config.LogLevel)
+								UpdatePayloadLOG(Message+1);
+							if (LOG_KML & Config.LogLevel)
 								UpdatePayloadKML(Config.LoRaDevices[Channel].Payload, Config.LoRaDevices[Channel].Seconds, 
 									Config.LoRaDevices[Channel].Latitude, Config.LoRaDevices[Channel].Longitude, 
 									Config.LoRaDevices[Channel].Altitude);
@@ -1139,7 +1143,7 @@ int main(int argc, char **argv)
 							DoPositionCalcs(Channel);
 							
 							Config.LoRaDevices[Channel].TelemetryCount++;
-							if (Config.EnableKML)
+							if (LOG_KML & Config.LogLevel)
 								UpdatePayloadKML(Payloads[SourceID].Payload, Config.LoRaDevices[Channel].Seconds, 
 									Config.LoRaDevices[Channel].Latitude, Config.LoRaDevices[Channel].Longitude, 
 									Config.LoRaDevices[Channel].Altitude);

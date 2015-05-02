@@ -58,6 +58,16 @@ void writeRefreshKML(FILE* fp, char * payload) {
 	fprintf(fp,"</kml>\n");
 }
 
+void UpdatePayloadLOG(char * payload)
+{
+	FILE * fp;
+	fp = fopen("telemetry.log", "a");
+	if (!fp)
+		return;
+	fprintf(fp, "%s", payload);
+	fclose(fp);
+}
+
 /* Update the KML file of the payload with the specified data */
 void UpdatePayloadKML(char * payload, unsigned int seconds, double latitude, double longitude, unsigned int altitude) {
 	FILE * fp;
