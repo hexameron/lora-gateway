@@ -108,6 +108,8 @@ uint8_t currentMode = 0x81;
 #define LNA_OFF_GAIN                0x00
 #define LNA_LOW_GAIN                0xC0  // 1100 0000
 
+#define RSSI_OFFSET 164
+//#define RSSI_OFFSET 157
 struct TPayload
 {
 	int InUse;
@@ -131,6 +133,7 @@ struct TBinaryPacket
 };
 
 const char *Modes[5] = {"slow", "SSDV", "repeater", "turbo", "TurboX"};
+int base_rssi, packet_rssi, packet_snr;
 
 void writeRegister(int Channel, uint8_t reg, uint8_t val)
 {
@@ -361,11 +364,13 @@ int receiveMessage(int Channel, unsigned char *message)
   
 	// clear the rxDone flag
 	writeRegister(Channel, REG_IRQ_FLAGS, 0x40); 
-   
+
+	packet_rssi = readRegister(Channel, REG_PACKET_RSSI) - RSSI_OFFSET;
+
 	// check for payload crc issues (0x20 is the bit we are looking for
 	if((x & 0x20) == 0x20)
 	{
-		LogMessage("CRC Failure, RSSI %d\n", readRegister(Channel, REG_PACKET_RSSI) - 157);
+		LogMessage("CRC Failure, RSSI %d\n", packet_rssi);
 		// reset the crc flags
 		writeRegister(Channel, REG_IRQ_FLAGS, 0x20);
 		ChannelPrintf(Channel, 3, 1, "CRC Failure %02Xh!!\n", x);
@@ -378,10 +383,10 @@ int receiveMessage(int Channel, unsigned char *message)
 		// LogMessage("currentAddr = %d\n", currentAddr);
 		Bytes = readRegister(Channel, REG_RX_NB_BYTES);
 		// LogMessage("%d bytes in packet\n", Bytes);
+		packet_snr = ( (int8_t)readRegister(Channel, REG_PACKET_SNR) ) / 4;
 
-		// LogMessage("RSSI = %d\n", readRegister(Channel, REG_PACKET_RSSI) - 137);
-		ChannelPrintf(Channel,  9, 1, "Packet   SNR = %4d   ", (int8_t)(readRegister(Channel, REG_PACKET_SNR)) / 4);
-		ChannelPrintf(Channel, 10, 1, "Packet  RSSI = %4d   ", readRegister(Channel, REG_PACKET_RSSI) - 157);
+		ChannelPrintf(Channel,  9, 1, "Packet   SNR = %4d   ", packet_snr);
+		ChannelPrintf(Channel, 10, 1, "Packet  RSSI = %4d   ", packet_rssi);
 		ChannelPrintf(Channel, 11, 1, "Freq. Error = %4.1lfkHz ", FrequencyError(Channel) / 1000);
 
 		writeRegister(Channel, REG_FIFO_ADDR_PTR, currentAddr);   
@@ -1094,14 +1099,16 @@ int main(int argc, char **argv)
 							
 							Config.LoRaDevices[Channel].TelemetryCount++;
 
-							if (LOG_TELEM & Config.LogLevel)
+							if (LOG_TELEM & Config.LogLevel) {
+								 if (LOG_RADIO & Config.LogLevel)
+									sprintf(Message + strlen(Message+1), ",%d,%d,%d\n",
+													base_rssi, packet_rssi, packet_snr);
 								UpdatePayloadLOG(Message+1);
+							}
 							if (LOG_KML & Config.LogLevel)
 								UpdatePayloadKML(Config.LoRaDevices[Channel].Payload, Config.LoRaDevices[Channel].Seconds, 
 									Config.LoRaDevices[Channel].Latitude, Config.LoRaDevices[Channel].Longitude, 
 									Config.LoRaDevices[Channel].Altitude);
-
-
 
 							Message[strlen(Message+1)] = '\0';
 							LogMessage("Ch %d: %s\n", Channel, Message+1);
@@ -1253,8 +1260,8 @@ int main(int argc, char **argv)
 						}
 						else
 						{
-							LogMessage("Unknown packet type is %02Xh, RSSI %d\n", Message[1], readRegister(Channel, REG_PACKET_RSSI) - 157);
-							ChannelPrintf(Channel, 3, 1, "Unknown Packet %d, %d bytes", Message[0], Bytes);
+							LogMessage("Unknown packet type is %02Xh, RSSI %d\n", Message[1], packet_rssi);
+							ChannelPrintf(Channel, 3, 1, "Unknown Packet %d, %d bytes", Message[1], Bytes);
 							Config.LoRaDevices[Channel].UnknownCount++;
 						}
 						
@@ -1264,11 +1271,12 @@ int main(int argc, char **argv)
 					}
 				}
 				
-				if (++LoopCount[Channel] > 4)
+				if (++LoopCount[Channel] > 8)
 				{
 					LoopCount[Channel] = 0;
 					ShowPacketCounts(Channel);
-					ChannelPrintf(Channel, 12, 1, "Current RSSI = %4d   ", readRegister(Channel, REG_CURRENT_RSSI) - 157);
+					base_rssi = readRegister(Channel, REG_CURRENT_RSSI) - RSSI_OFFSET;
+					ChannelPrintf(Channel, 12, 1, "Current RSSI = %4d   ", base_rssi);
 					if (Config.LoRaDevices[Channel].LastPacketAt > 0)
 					{
 						ChannelPrintf(Channel, 5, 1, "%us since last packet   ", (unsigned int)(time(NULL) - Config.LoRaDevices[Channel].LastPacketAt));
@@ -1276,7 +1284,7 @@ int main(int argc, char **argv)
 				}
 			}
 		}
-		delay(100);
+		delay(50);
  	}
 
 	CloseDisplay(mainwin);
