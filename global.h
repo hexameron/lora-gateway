@@ -28,6 +28,8 @@ struct TLoRaDevice
 	unsigned long LastPositionAt;
 	time_t LastPacketAt;
 	float AscentRate;
+
+	int base_rssi, packet_rssi, packet_snr, freq_offset;
 };
 
 struct TConfig

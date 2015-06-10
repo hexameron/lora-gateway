@@ -110,6 +110,7 @@ uint8_t currentMode = 0x81;
 
 #define RSSI_OFFSET 164
 //#define RSSI_OFFSET 157
+
 struct TPayload
 {
 	int InUse;
@@ -133,7 +134,6 @@ struct TBinaryPacket
 };
 
 const char *Modes[5] = {"slow", "SSDV", "repeater", "turbo", "TurboX"};
-int base_rssi, packet_rssi, packet_snr;
 
 void writeRegister(int Channel, uint8_t reg, uint8_t val)
 {
@@ -166,14 +166,14 @@ void LogMessage(const char *format, ...)
 	if (Window == NULL)
 	{
 		// Window = newwin(25, 30, 0, 50);
-		Window = newwin(9, 80, 16, 0);
+		Window = newwin(9, 99, 16, 0);
 		scrollok(Window, TRUE);		
 	}
 	
     va_list args;
     va_start(args, format);
 
-    vsnprintf(Buffer, 80, format, args);
+    vsnprintf(Buffer, 99, format, args);
 
     va_end(args);
 
@@ -365,12 +365,12 @@ int receiveMessage(int Channel, unsigned char *message)
 	// clear the rxDone flag
 	writeRegister(Channel, REG_IRQ_FLAGS, 0x40); 
 
-	packet_rssi = readRegister(Channel, REG_PACKET_RSSI) - RSSI_OFFSET;
+	Config.LoRaDevices[Channel].packet_rssi = readRegister(Channel, REG_PACKET_RSSI) - RSSI_OFFSET;
 
 	// check for payload crc issues (0x20 is the bit we are looking for
 	if((x & 0x20) == 0x20)
 	{
-		LogMessage("CRC Failure, RSSI %d\n", packet_rssi);
+		LogMessage("CRC Failure, RSSI %d\n", Config.LoRaDevices[Channel].packet_rssi);
 		// reset the crc flags
 		writeRegister(Channel, REG_IRQ_FLAGS, 0x20);
 		ChannelPrintf(Channel, 3, 1, "CRC Failure %02Xh!!\n", x);
@@ -383,13 +383,15 @@ int receiveMessage(int Channel, unsigned char *message)
 		// LogMessage("currentAddr = %d\n", currentAddr);
 		Bytes = readRegister(Channel, REG_RX_NB_BYTES);
 		// LogMessage("%d bytes in packet\n", Bytes);
-		packet_snr = ( (int8_t)readRegister(Channel, REG_PACKET_SNR) ) / 4;
+		Config.LoRaDevices[Channel].packet_snr = ( (int8_t)readRegister(Channel, REG_PACKET_SNR) ) / 4;
+		Config.LoRaDevices[Channel].freq_offset = (int)FrequencyError(Channel);
+		Config.LoRaDevices[Channel].base_rssi = readRegister(Channel, REG_CURRENT_RSSI) - RSSI_OFFSET;
 
-		ChannelPrintf(Channel,  9, 1, "Packet   SNR = %4d   ", packet_snr);
-		ChannelPrintf(Channel, 10, 1, "Packet  RSSI = %4d   ", packet_rssi);
-		ChannelPrintf(Channel, 11, 1, "Freq. Error = %4.1lfkHz ", FrequencyError(Channel) / 1000);
+		ChannelPrintf(Channel,  9, 1, "Packet   SNR = %4d   ", Config.LoRaDevices[Channel].packet_snr);
+		ChannelPrintf(Channel, 10, 1, "Packet  RSSI = %4d   ", Config.LoRaDevices[Channel].packet_rssi);
+		ChannelPrintf(Channel, 11, 1, "Freq. Offset = %4d   ", Config.LoRaDevices[Channel].freq_offset);
 
-		writeRegister(Channel, REG_FIFO_ADDR_PTR, currentAddr);   
+		writeRegister(Channel, REG_FIFO_ADDR_PTR, currentAddr); 
 		
 		/*
 		// now loop over the fifo getting the data
@@ -995,7 +997,7 @@ uint16_t CRC16(unsigned char *ptr)
 
 int main(int argc, char **argv)
 {
-	unsigned char Message[257], Command[200], Telemetry[100], filename[100], *dest, *src;
+	unsigned char Message[300], Command[200], Telemetry[100], filename[100], *dest, *src;
 	int Bytes, ImageNumber, PreviousImageNumber, PacketNumber, PreviousPacketNumber;
 	uint32_t CallsignCode, PreviousCallsignCode, LoopCount[2];
 	pthread_t /* CurlThread, */ SSDVThread;
@@ -1003,8 +1005,7 @@ int main(int argc, char **argv)
 	WINDOW * mainwin;
 		
 	mainwin = InitDisplay();
-
-	// LogMessage("**** LoRa Gateway by daveake ****\n");
+	LogMessage("**** LoRa Gateway by daveake ****\n");
 
 	PreviousImageNumber = -1;
 	PreviousCallsignCode = 0;
@@ -1101,8 +1102,11 @@ int main(int argc, char **argv)
 
 							if (LOG_TELEM & Config.LogLevel) {
 								 if (LOG_RADIO & Config.LogLevel)
-									sprintf(Message + strlen(Message+1), ",%d,%d,%d\n",
-													base_rssi, packet_rssi, packet_snr);
+									sprintf(Message + strlen(Message+1), ",%d,%d,%d,%d\n",
+												Config.LoRaDevices[Channel].base_rssi,
+												Config.LoRaDevices[Channel].packet_rssi,
+												Config.LoRaDevices[Channel].packet_snr,
+												Config.LoRaDevices[Channel].freq_offset);
 								UpdatePayloadLOG(Message+1);
 							}
 							if (LOG_KML & Config.LogLevel)
@@ -1260,7 +1264,7 @@ int main(int argc, char **argv)
 						}
 						else
 						{
-							LogMessage("Unknown packet type is %02Xh, RSSI %d\n", Message[1], packet_rssi);
+							LogMessage("Unknown packet type is %02Xh, RSSI %d\n", Message[1], Config.LoRaDevices[Channel].packet_rssi);
 							ChannelPrintf(Channel, 3, 1, "Unknown Packet %d, %d bytes", Message[1], Bytes);
 							Config.LoRaDevices[Channel].UnknownCount++;
 						}
@@ -1271,12 +1275,11 @@ int main(int argc, char **argv)
 					}
 				}
 				
-				if (++LoopCount[Channel] > 8)
+				if (++LoopCount[Channel] > 20)
 				{
 					LoopCount[Channel] = 0;
 					ShowPacketCounts(Channel);
-					base_rssi = readRegister(Channel, REG_CURRENT_RSSI) - RSSI_OFFSET;
-					ChannelPrintf(Channel, 12, 1, "Current RSSI = %4d   ", base_rssi);
+					ChannelPrintf(Channel, 12, 1, "Current RSSI = %4d   ", readRegister(Channel, REG_CURRENT_RSSI) - RSSI_OFFSET);
 					if (Config.LoRaDevices[Channel].LastPacketAt > 0)
 					{
 						ChannelPrintf(Channel, 5, 1, "%us since last packet   ", (unsigned int)(time(NULL) - Config.LoRaDevices[Channel].LastPacketAt));
