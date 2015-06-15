@@ -335,7 +335,7 @@ double FrequencyError(int Channel)
 	Offset = - ((double)Temp * (1<<24) / 32000000.0) * (Config.LoRaDevices[Channel].Reference / 500000.0);
 
 	// Avoid unnecessary changes
-	if ((Offset > +450.0) || (Offset < -450.0))
+	if ((Offset > +900.0) || (Offset < -900.0))
 	{
 		Temp = (int32_t)readRegister(Channel, REG_FREQ);
 		Temp <<= 8;
@@ -351,6 +351,44 @@ double FrequencyError(int Channel)
 	}
 	return Offset;
 }	
+
+void ProcessCallingMessage(int Channel, char *Message)
+{
+	char Payload[16];
+	double Frequency;
+	int ImplicitOrExplicit, ErrorCoding, Bandwidth, SpreadingFactor, LowDataRateOptimize;
+	int freqSet;
+
+	if (sscanf(Message, "%15[^,],%lf,%d,%d,%d,%d,%d,%d",
+						Payload,
+						&Frequency,
+						&ImplicitOrExplicit,
+						&ErrorCoding,
+						&Bandwidth,
+						&SpreadingFactor,
+						&LowDataRateOptimize) == 7)
+	{
+		setMode(Channel, RF96_MODE_SLEEP);
+
+		Frequency -= FrequencyError(Channel);
+		freqSet = (int)(Frequency * 7110656 / 434);
+                writeRegister(Channel, REG_FREQ,   (freqSet >> 16) & 0xff);
+                writeRegister(Channel, REG_FREQ + 1, (freqSet >> 8) & 0xff);
+                writeRegister(Channel, REG_FREQ + 2, (freqSet) & 0xff);
+
+		writeRegister(Channel, REG_MODEM_CONFIG, ImplicitOrExplicit | ErrorCoding | Bandwidth);
+		writeRegister(Channel, REG_MODEM_CONFIG2, SpreadingFactor | CRC_ON);
+		writeRegister(Channel, REG_MODEM_CONFIG3, 0x04 | LowDataRateOptimize);
+		writeRegister(Channel, REG_DETECT_OPT, (readRegister(Channel, REG_DETECT_OPT) & 0xF8)
+							| ((SpreadingFactor == SPREADING_6) ? 0x05 : 0x03));
+		writeRegister(Channel, REG_DETECTION_THRESHOLD, (SpreadingFactor == SPREADING_6) ? 0x0C : 0x0A);	
+		Config.LoRaDevices[Channel].Reference = Bandwidth;
+
+		setMode(Channel, RF96_MODE_RX_CONTINUOUS); 
+	}
+}
+
+
 
 int receiveMessage(int Channel, unsigned char *message)
 {
@@ -1087,17 +1125,18 @@ int main(int argc, char **argv)
 						{
 							LogMessage("Ch %d: Uploaded message %s\n", Channel, Message+1);
 						}
+						else if (Message[1] == '^')
+						{
+							ChannelPrintf(Channel, 4, 1, "Calling message %d bytes ", strlen(Message+1));
+							ProcessCallingMessage(Channel, Message+3);
+						}
 						else if (Message[1] == '$')
 						{
 							ChannelPrintf(Channel, 3, 1, "Telemetry %d bytes    ", strlen(Message+1)-1);	//  Bytes);
 							// LogMessage("Telemetry %d bytes\n", strlen(Message+1)-1);
-															
 							UploadTelemetryPacket(Message+1);
-
 							ProcessLine(Channel, Message+1);
-							
 							DoPositionCalcs(Channel);
-							
 							Config.LoRaDevices[Channel].TelemetryCount++;
 
 							if (LOG_TELEM & Config.LogLevel) {
