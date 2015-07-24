@@ -167,7 +167,7 @@ void LogMessage(const char *format, ...)
 	if (Window == NULL)
 	{
 		// Window = newwin(25, 30, 0, 50);
-		Window = newwin(9, 99, 20, 0);
+		Window = newwin(12, 99, 14, 0);
 		scrollok(Window, TRUE);		
 	}
 	
@@ -412,7 +412,7 @@ int receiveMessage(int Channel, unsigned char *message)
 		LogMessage("CRC Failure, RSSI %d\n", Config.LoRaDevices[Channel].packet_rssi);
 		// reset the crc flags
 		writeRegister(Channel, REG_IRQ_FLAGS, 0x20);
-		ChannelPrintf(Channel, 3, 1, "CRC Failure %02Xh!!\n", x);
+		ChannelPrintf(Channel, 3, 1, "CRC Failure %02Xh             ", x);
 		Config.LoRaDevices[Channel].BadCRCCount++;
 		ShowPacketCounts(Channel);
 	}
@@ -428,7 +428,7 @@ int receiveMessage(int Channel, unsigned char *message)
 
 		ChannelPrintf(Channel,  9, 1, "Packet   SNR = %4d   ", Config.LoRaDevices[Channel].packet_snr);
 		ChannelPrintf(Channel, 10, 1, "Packet  RSSI = %4d   ", Config.LoRaDevices[Channel].packet_rssi);
-		ChannelPrintf(Channel, 11, 1, "Freq. Offset = %4d   ", Config.LoRaDevices[Channel].freq_offset);
+		ChannelPrintf(Channel,  2, 1, "Freq. Offset = %4d   ", Config.LoRaDevices[Channel].freq_offset);
 
 		writeRegister(Channel, REG_FIFO_ADDR_PTR, currentAddr); 
 		
@@ -703,7 +703,7 @@ void LoadConfigFile()
 			sprintf(Keyword, "mode_%d", Channel);
 			Config.LoRaDevices[Channel].SpeedMode = ReadInteger(fp, Keyword, 0, 0);
 			// Config.LoRaDevices[Channel].PayloadLength = Config.LoRaDevices[Channel].SpeedMode == 0 ? 80 : 255;
-			ChannelPrintf(Channel, 1, 1, "Channel %d %sMHz %s mode", Channel, Config.LoRaDevices[Channel].Frequency, Modes[Config.LoRaDevices[Channel].SpeedMode]);
+			ChannelPrintf(Channel, 0, 1, "Channel %d %sMHz %s mode", Channel, Config.LoRaDevices[Channel].Frequency, Modes[Config.LoRaDevices[Channel].SpeedMode]);
 
 			if (Config.LoRaDevices[Channel].SpeedMode == 4)
 			{
@@ -910,13 +910,13 @@ WINDOW * InitDisplay(void)
 	// attrset(COLOR_PAIR(1) | A_BOLD);
 
 	// Title bar
-    mvaddstr(0, 19, " LoRa Habitat and SSDV Gateway by daveake ");
+    mvaddstr(0, 10, " LoRa Habitat and SSDV Gateway by daveake ");
     refresh();
 
 	// Windows for LoRa live data
 	for (Channel=0; Channel<=1; Channel++)
 	{
-		Config.LoRaDevices[Channel].Window = newwin(14, 38, 1, Channel ? 41 : 1);
+		Config.LoRaDevices[Channel].Window = newwin(13, 34, 1, Channel ? 34 : 0);
 		wbkgd(Config.LoRaDevices[Channel].Window, COLOR_PAIR(2));
 		
 		// wcolor_set(Config.LoRaDevices[Channel].Window, 2, NULL);
@@ -1128,12 +1128,12 @@ int main(int argc, char **argv)
 						}
 						else if (Message[1] == '^')
 						{
-							ChannelPrintf(Channel, 4, 1, "Calling message %d bytes ", strlen(Message+1));
+							ChannelPrintf(Channel, 3, 1, "Calling message %d bytes      ", strlen(Message+1));
 							ProcessCallingMessage(Channel, Message+3);
 						}
 						else if (Message[1] == '$')
 						{
-							ChannelPrintf(Channel, 3, 1, "Telemetry %d bytes    ", strlen(Message+1)-1);	//  Bytes);
+							ChannelPrintf(Channel, 3, 1, "Telemetry %d bytes            ", strlen(Message+1)-1);	//  Bytes);
 							// LogMessage("Telemetry %d bytes\n", strlen(Message+1)-1);
 							UploadTelemetryPacket(Message+1);
 							ProcessLine(Channel, Message+1);
@@ -1167,7 +1167,7 @@ int main(int argc, char **argv)
 							SourceID = Message[1] & 0x07;
 							SenderID = (Message[1] >> 3) & 0x07;
 
-							ChannelPrintf(Channel, 3, 1, "Binary Telemetry");
+							ChannelPrintf(Channel, 3, 1, "Binary Telemetry              ");
 
 							memcpy(&BinaryPacket, Message+1, sizeof(BinaryPacket));
 							
@@ -1215,7 +1215,7 @@ int main(int argc, char **argv)
 							// Binary upload packet
 							int SenderID, TargetID;
 							
-							ChannelPrintf(Channel, 3, 1, "Uplink Message");
+							ChannelPrintf(Channel, 3, 1, "Uplink Message                ");
 
 							TargetID = Message[1] & 0x07;
 							SenderID = (Message[1] >> 3) & 0x07;
@@ -1263,7 +1263,7 @@ int main(int argc, char **argv)
 							}
 
 							LogMessage("SSDV Packet, Callsign %s, Image %d, Packet %d, %d Missing\n", Callsign, Message[6], Message[7] * 256 + Message[8], Config.LoRaDevices[Channel].SSDVMissing);
-							ChannelPrintf(Channel, 3, 1, "SSDV Packet %d bytes  ", Bytes);
+							ChannelPrintf(Channel, 3, 1, "SSDV Packet %d bytes          ", Bytes);
 							
 							PreviousImageNumber = ImageNumber;
 							PreviousPacketNumber = PacketNumber;
@@ -1305,7 +1305,7 @@ int main(int argc, char **argv)
 						else
 						{
 							LogMessage("Unknown packet type is %02Xh, RSSI %d\n", Message[1], Config.LoRaDevices[Channel].packet_rssi);
-							ChannelPrintf(Channel, 3, 1, "Unknown Packet %d, %d bytes", Message[1], Bytes);
+							ChannelPrintf(Channel, 3, 1, "Unknown Packet %d, %d bytes  ", Message[1], Bytes);
 							Config.LoRaDevices[Channel].UnknownCount++;
 						}
 						
@@ -1319,7 +1319,7 @@ int main(int argc, char **argv)
 				{
 					LoopCount[Channel] = 0;
 					ShowPacketCounts(Channel);
-					ChannelPrintf(Channel, 12, 1, "Current RSSI = %4d   ", readRegister(Channel, REG_CURRENT_RSSI) - RSSI_OFFSET);
+					ChannelPrintf(Channel, 11, 1, "Current RSSI = %4d   ", readRegister(Channel, REG_CURRENT_RSSI) - RSSI_OFFSET);
 					if (Config.LoRaDevices[Channel].LastPacketAt > 0)
 					{
 						ChannelPrintf(Channel, 5, 1, "%us since last packet   ", (unsigned int)(time(NULL) - Config.LoRaDevices[Channel].LastPacketAt));
