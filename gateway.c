@@ -108,6 +108,7 @@ uint8_t currentMode = 0x81;
 #define LNA_OFF_GAIN                0x00
 #define LNA_LOW_GAIN                0xC0  // 1100 0000
 
+//#define RSSI_OFFSET 50
 #define RSSI_OFFSET 164
 //#define RSSI_OFFSET 157
 
@@ -166,7 +167,7 @@ void LogMessage(const char *format, ...)
 	if (Window == NULL)
 	{
 		// Window = newwin(25, 30, 0, 50);
-		Window = newwin(9, 99, 16, 0);
+		Window = newwin(9, 99, 20, 0);
 		scrollok(Window, TRUE);		
 	}
 	
@@ -564,7 +565,7 @@ void UploadImagePacket(char *EncodedCallsign, char *EncodedEncoding, char *Encod
 		curl_easy_setopt(curl, CURLOPT_URL, "http://www.sanslogic.co.uk/ssdv/data.php");
 	
 		/* Now specify the POST data */ 
-		sprintf(PostFields, "callsign=%s&encoding=%s&packet=%s", EncodedCallsign, EncodedEncoding, EncodedData);
+		sprintf(PostFields, "callsign=%s&encoding=%s&packet=%s", Config.Tracker, EncodedEncoding, EncodedData);
 		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, PostFields);
  
 		/* Perform the request, res will get the return code */ 
@@ -901,8 +902,8 @@ WINDOW * InitDisplay(void)
 
     start_color();                    /*  Initialize colours  */
 
-	init_pair(1, COLOR_WHITE, COLOR_BLUE);
-	init_pair(2, COLOR_YELLOW, COLOR_BLUE);
+	init_pair(1, COLOR_RED, COLOR_BLACK);
+	init_pair(2, COLOR_GREEN, COLOR_BLACK);
 
 	color_set(1, NULL);
 	// bkgd(COLOR_PAIR(1));
@@ -1314,7 +1315,7 @@ int main(int argc, char **argv)
 					}
 				}
 				
-				if (++LoopCount[Channel] > 20)
+				if (++LoopCount[Channel] > 50)
 				{
 					LoopCount[Channel] = 0;
 					ShowPacketCounts(Channel);
@@ -1326,7 +1327,7 @@ int main(int argc, char **argv)
 				}
 			}
 		}
-		delay(50);
+		delay(20);
  	}
 
 	CloseDisplay(mainwin);
