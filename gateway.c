@@ -842,6 +842,8 @@ void LoadConfigFile()
 				if (Temp)
 				{
 					Config.LoRaDevices[Channel].LowDataRateOptimize = 0x08;
+				} else {
+					Config.LoRaDevices[Channel].LowDataRateOptimize = 0x00;
 				}
 			}
 			LogMessage("LowDataRate=%s\n", (Config.LoRaDevices[Channel].LowDataRateOptimize & 0x08)? "ON":"OFF");
