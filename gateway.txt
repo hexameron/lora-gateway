@@ -2,6 +2,9 @@ tracker=Lx17
 EnableHabitat=N
 EnableSSDV=Y
 LogLevel=5
+Latitude=51.06
+Longitude=-4.12
+Altitude=69
 
 frequency_0=434.4
 #mode_0=1

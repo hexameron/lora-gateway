@@ -16,6 +16,7 @@
 #include <stdarg.h>
 #include <pthread.h>
 #include <curses.h>
+#include <math.h>
 
 #include <wiringPi.h>
 #include <wiringPiSPI.h>
@@ -174,7 +175,7 @@ void LogMessage(const char *format, ...)
     va_list args;
     va_start(args, format);
 
-    vsnprintf(Buffer, 99, format, args);
+    vsnprintf(Buffer, 159, format, args);
 
     va_end(args);
 
@@ -652,6 +653,9 @@ void LoadConfigFile()
 	Config.ftpPassword[0] = '\0';
 	Config.ftpFolder[0] = '\0';
 	Config.LogLevel = 0;
+	Config.myLat = 52.0;
+	Config.myLon = -2.0;
+	Config.myAlt = 99.0;
 	
 	if ((fp = fopen(filename, "r")) == NULL)
 	{
@@ -671,6 +675,17 @@ void LoadConfigFile()
 	ReadString(fp, "ftpFolder", Config.ftpFolder, sizeof(Config.ftpFolder), 0);	
 
 	Config.LogLevel = ReadInteger(fp, "LogLevel", 0, 0);
+
+	sprintf(Keyword, "52");
+	ReadString(fp, "Latitude", Keyword, sizeof(Keyword), 0);
+	sscanf(Keyword, "%lf", &Config.myLat);
+	sprintf(Keyword, "-2");
+	ReadString(fp, "Longitude", Keyword, sizeof(Keyword), 0);
+	sscanf(Keyword, "%lf", &Config.myLon);
+	sprintf(Keyword, "99");
+	ReadString(fp, "Altitude", Keyword, sizeof(Keyword), 0);
+	sscanf(Keyword, "%lf", &Config.myAlt);
+	LogMessage("Location: %lf, %lf, %lf\n", Config.myLat, Config.myLon, Config.myAlt);
 
 	for (Channel=0; Channel<=1; Channel++)
 	{
@@ -982,6 +997,42 @@ void DoPositionCalcs(Channel)
 								Config.LoRaDevices[Channel].Latitude,
 								Config.LoRaDevices[Channel].Longitude,
 								Config.LoRaDevices[Channel].Altitude);
+
+    /* See habitat-autotracker/autotracker/earthmaths.py. */
+    double c = M_PI/180;
+    double lat1, lon1, lat2, lon2, alt1, alt2;
+    lat1 = Config.myLat * c;
+    lon1 = Config.myLon * c;
+    alt1 = Config.myAlt;
+    lat2 = Config.LoRaDevices[Channel].Latitude * c;
+    lon2 = Config.LoRaDevices[Channel].Longitude * c;
+    alt2 = Config.LoRaDevices[Channel].Altitude;
+
+    double radius, d_lon, sa, sb, bearing, aa, ab, angle_at_centre,
+           ta, tb, ea, eb, elevation, distance;
+
+    radius = 6371000.0;
+
+    d_lon = lon2 - lon1;
+    sa = cos(lat2) * sin(d_lon);
+    sb = (cos(lat1) * sin(lat2)) - (sin(lat1) * cos(lat2) * cos(d_lon));
+    // bearing = atan2(sa, sb) * (180/M_PI);
+    aa = sqrt((sa * sa) + (sb * sb));
+    ab = (sin(lat1) * sin(lat2)) + (cos(lat1) * cos(lat2) * cos(d_lon));
+    angle_at_centre = atan2(aa, ab);
+
+    ta = radius + alt1;
+    tb = radius + alt2;
+    ea = (cos(angle_at_centre) * tb) - ta;
+    eb = sin(angle_at_centre) * tb;
+
+    elevation = atan2(ea, eb) * (180/M_PI);
+    Config.LoRaDevices[Channel].Elevation = elevation;
+    distance = sqrt((ta * ta) + (tb * tb) -
+                    2 * tb * ta * cos(angle_at_centre));
+    Config.LoRaDevices[Channel].Distance = distance / 1000;
+
+    ChannelPrintf(Channel, 1, 1, "%3.1lfkm, elevation %1.1lf  ", distance / 1000, elevation);
 }
 
 int NewBoard(void)
@@ -1132,11 +1183,11 @@ int main(int argc, char **argv)
 						{
 							ChannelPrintf(Channel, 3, 1, "Calling message %d bytes      ", strlen(Message+1));
 							ProcessCallingMessage(Channel, Message+3);
+							LogMessage("%s\n", Message+1);
 						}
 						else if (Message[1] == '$')
 						{
-							ChannelPrintf(Channel, 3, 1, "Telemetry %d bytes            ", strlen(Message+1)-1);	//  Bytes);
-							// LogMessage("Telemetry %d bytes\n", strlen(Message+1)-1);
+							ChannelPrintf(Channel, 3, 1, "Telemetry %d bytes            ", strlen(Message+1)-1);
 							UploadTelemetryPacket(Message+1);
 							ProcessLine(Channel, Message+1);
 							DoPositionCalcs(Channel);
@@ -1144,7 +1195,11 @@ int main(int argc, char **argv)
 
 							if (LOG_TELEM & Config.LogLevel) {
 								 if (LOG_RADIO & Config.LogLevel)
-									sprintf(Message + strlen(Message+1), ",%d,%d,%d,%d\n",
+									sprintf(Message+1 + strlen(Message+1),
+											"Stats:%d,%1.1lf,%1.1lf,%d,%d,%d,%d\n",
+												Channel,
+												Config.LoRaDevices[Channel].Distance,
+												Config.LoRaDevices[Channel].Elevation,
 												Config.LoRaDevices[Channel].base_rssi,
 												Config.LoRaDevices[Channel].packet_rssi,
 												Config.LoRaDevices[Channel].packet_snr,
@@ -1157,7 +1212,7 @@ int main(int argc, char **argv)
 									Config.LoRaDevices[Channel].Altitude);
 
 							Message[strlen(Message+1)] = '\0';
-							LogMessage("Ch %d: %s\n", Channel, Message+1);
+							LogMessage("%s\n", Message+1);
 						}
 						else if ((Message[1] & 0xC0) == 0xC0)
 						{

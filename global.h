@@ -23,6 +23,7 @@ struct TLoRaDevice
 	unsigned int Counter;
 	unsigned long Seconds;
 	double Longitude, Latitude;
+	double Distance, Elevation;
 	unsigned int Altitude, PreviousAltitude;
 	unsigned int Satellites;
 	unsigned long LastPositionAt;
@@ -43,6 +44,7 @@ struct TConfig
 	char ftpFolder[64];
 	struct TLoRaDevice LoRaDevices[2];
 	int LogLevel;
+	double myLat, myLon, myAlt;
 };
 
 extern struct TConfig Config;
