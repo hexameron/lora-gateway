@@ -109,8 +109,8 @@ uint8_t currentMode = 0x81;
 #define LNA_OFF_GAIN                0x00
 #define LNA_LOW_GAIN                0xC0  // 1100 0000
 
-//#define RSSI_OFFSET 50
-#define RSSI_OFFSET 164
+#define RSSI_OFFSET 35
+//#define RSSI_OFFSET 164
 //#define RSSI_OFFSET 157
 
 struct TPayload
@@ -504,7 +504,7 @@ size_t write_data(void *buffer, size_t size, size_t nmemb, void *userp)
 
 void UploadTelemetryPacket(char *Telemetry)
 {
-	if (Config.EnableHabitat)
+	if (Config.EnableHabitat && (strlen(Telemetry) < 120) )
 	{
 		CURL *curl;
 		CURLcode res;
@@ -524,7 +524,7 @@ void UploadTelemetryPacket(char *Telemetry)
 			curl_easy_setopt(curl, CURLOPT_URL, "http://habitat.habhub.org/transition/payload_telemetry");
 		
 			// Now specify the POST data
-			sprintf(PostFields, "callsign=%s&string=%s&string_type=ascii&metadata={}", Config.Tracker, Telemetry);
+			snprintf(PostFields, 199, "callsign=%s&string=%s&string_type=ascii&metadata={}", Config.Tracker, Telemetry);
 			curl_easy_setopt(curl, CURLOPT_POSTFIELDS, PostFields);
 	 
 			// Perform the request, res will get the return code
