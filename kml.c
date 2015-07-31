@@ -99,17 +99,12 @@ void UpdatePayloadKML(char * payload, unsigned int seconds, double latitude, dou
 		if (fp_refresh) {
 			writeRefreshKML(fp_refresh,payload);
 			fclose(fp_refresh);
-		} else {
-			LogMessage("Can't open %s file for writing\n", filename_refresh);
 		}
 		/* Create the KML file for the payload */
 		
 		fp = fopen(filename, "a");
 		if (!fp) {
-			LogMessage("Can't open %s file for writing\n", filename);
 			return;
-		} else {
-			LogMessage("Created %s file\n", filename);
 		}
 		/* Add the header, new data line and footer */
 		writeHeader(fp, payload);
@@ -120,7 +115,6 @@ void UpdatePayloadKML(char * payload, unsigned int seconds, double latitude, dou
 		/* KML already exists : update only the file with new data */
 		fp = fopen(filename, "r+");
 		if (!fp) {
-			LogMessage("Can't open %s file for writing\n", filename);
 			return;
 		}
 		/* Write new data just before the position of the footer in the KML */

@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <stdio.h>
 #include <curl/curl.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -109,8 +108,8 @@ uint8_t currentMode = 0x81;
 #define LNA_OFF_GAIN                0x00
 #define LNA_LOW_GAIN                0xC0  // 1100 0000
 
-#define RSSI_OFFSET 35
-//#define RSSI_OFFSET 164
+//#define RSSI_OFFSET 50
+#define RSSI_OFFSET 164
 //#define RSSI_OFFSET 157
 
 struct TPayload
@@ -361,7 +360,7 @@ void ProcessCallingMessage(int Channel, char *Message)
 	int ImplicitOrExplicit, ErrorCoding, Bandwidth, SpreadingFactor, LowDataRateOptimize;
 	int freqSet;
 
-	if (sscanf(Message, "%15[^,],%lf,%d,%d,%d,%d,%d,%d",
+	if (sscanf(Message, "%15[^,],%lf,%d,%d,%d,%d,%d",
 						Payload,
 						&Frequency,
 						&ImplicitOrExplicit,
@@ -392,7 +391,7 @@ void ProcessCallingMessage(int Channel, char *Message)
 
 
 
-int receiveMessage(int Channel, unsigned char *message)
+int receiveMessage(int Channel, char *message)
 {
 	int i, Bytes, currentAddr, x;
 	unsigned char data[257];
@@ -483,7 +482,7 @@ static char *decode_callsign(char *callsign, uint32_t code)
 	return(callsign);
 }
 
-void ConvertStringToHex(unsigned char *Target, unsigned char *Source, int Length)
+void ConvertStringToHex(char *Target, char *Source, int Length)
 {
 	const char Hex[16] = "0123456789ABCDEF";
 	int i;
@@ -872,9 +871,6 @@ void LoadPayloadFile(int ID)
 {
 	FILE *fp;
 	char filename[16];
-	char Keyword[32];
-	int Channel, Temp;
-	char TempString[16];
 	
 	sprintf(filename, "payload_%d.txt", ID);
 
@@ -955,23 +951,25 @@ void CloseDisplay(WINDOW * mainwin)
     refresh();
 }
 	
-void ProcessLine(int Channel, char *Line)
+int ProcessLine(int Channel, char *Line)
 {
 	int FieldCount; 
 
 	FieldCount = sscanf(Line+2, "%15[^,],%u,%8[^,],%lf,%lf,%u",
-						&(Config.LoRaDevices[Channel].Payload),
+						(Config.LoRaDevices[Channel].Payload),
 						&(Config.LoRaDevices[Channel].Counter),
-						&(Config.LoRaDevices[Channel].Time),
+						(Config.LoRaDevices[Channel].Time),
 						&(Config.LoRaDevices[Channel].Latitude),
 						&(Config.LoRaDevices[Channel].Longitude),
 						&(Config.LoRaDevices[Channel].Altitude));
 						
 	// HAB->HAB_status = FieldCount == 6;
+	return (FieldCount == 6);
 }
 
 void DoPositionCalcs(Channel)
-{	
+{
+#if 0	
 	unsigned long Now;
 	struct tm tm;
 	float Climb, Period;
@@ -992,7 +990,7 @@ void DoPositionCalcs(Channel)
 	
 	Config.LoRaDevices[Channel].PreviousAltitude = Config.LoRaDevices[Channel].Altitude;
 	Config.LoRaDevices[Channel].LastPositionAt = Now;
-	
+#endif	
 	ChannelPrintf(Channel, 4, 1, "%8.5lf, %8.5lf, %05u   ", 
 								Config.LoRaDevices[Channel].Latitude,
 								Config.LoRaDevices[Channel].Longitude,
@@ -1008,7 +1006,7 @@ void DoPositionCalcs(Channel)
     lon2 = Config.LoRaDevices[Channel].Longitude * c;
     alt2 = Config.LoRaDevices[Channel].Altitude;
 
-    double radius, d_lon, sa, sb, bearing, aa, ab, angle_at_centre,
+    double radius, d_lon, sa, sb, aa, ab, angle_at_centre, // bearing,
            ta, tb, ea, eb, elevation, distance;
 
     radius = 6371000.0;
@@ -1039,7 +1037,6 @@ int NewBoard(void)
 {
 	FILE *cpuFd ;
 	char line [120] ;
-	char *c ;
 	static int  boardRev = -1 ;
 
 	if (boardRev < 0)
@@ -1063,7 +1060,7 @@ int NewBoard(void)
 	return boardRev;
 }	
 
-uint16_t CRC16(unsigned char *ptr)
+uint16_t CRC16(char *ptr)
 {
     uint16_t CRC, xPolynomial;
 	int j;
@@ -1077,7 +1074,7 @@ uint16_t CRC16(unsigned char *ptr)
         for (j=0; j<8; j++)
         {
             if (CRC & 0x8000)
-                CRC = (CRC << 1) ^ 0x1021;
+                CRC = (CRC << 1) ^ xPolynomial;
             else
                 CRC <<= 1;
         }
@@ -1089,7 +1086,7 @@ uint16_t CRC16(unsigned char *ptr)
 
 int main(int argc, char **argv)
 {
-	unsigned char Message[300], Command[200], Telemetry[100], filename[100], *dest, *src;
+	char Message[300], filename[100];
 	int Bytes, ImageNumber, PreviousImageNumber, PacketNumber, PreviousPacketNumber;
 	uint32_t CallsignCode, PreviousCallsignCode, LoopCount[2];
 	pthread_t /* CurlThread, */ SSDVThread;
@@ -1189,8 +1186,8 @@ int main(int argc, char **argv)
 						{
 							ChannelPrintf(Channel, 3, 1, "Telemetry %d bytes            ", strlen(Message+1)-1);
 							UploadTelemetryPacket(Message+1);
-							ProcessLine(Channel, Message+1);
-							DoPositionCalcs(Channel);
+							if (ProcessLine(Channel, Message+1))
+								DoPositionCalcs(Channel);
 							Config.LoRaDevices[Channel].TelemetryCount++;
 
 							if (LOG_TELEM & Config.LogLevel) {
@@ -1287,9 +1284,7 @@ int main(int argc, char **argv)
 						else if (Message[1] == 0x66)
 						{
 							// SSDV packet
-							char Callsign[7], *FileMode, *EncodedCallsign, *EncodedEncoding, *Base64Data, *EncodedData, HexString[513], Command[1000];
-							int output_length;
-							
+							char Callsign[7], *FileMode, *EncodedCallsign, *EncodedEncoding, *EncodedData, HexString[513];
 							Message[0] = 0x55;
 							
 							CallsignCode = Message[2]; CallsignCode <<= 8;
@@ -1327,11 +1322,9 @@ int main(int argc, char **argv)
 							PreviousCallsignCode = CallsignCode;
 
 							// Save to file
-							
 							sprintf(filename, "/tmp/%s_%d.bin", Callsign, ImageNumber);
-
-							if (fp = fopen(filename, FileMode))
-							{
+							fp = fopen(filename, FileMode);
+							if (fp) {
 								fwrite(Message, 1, 256, fp); 
 								fclose(fp);
 							}
