@@ -272,10 +272,8 @@ void startReceiving(int Channel)
 
 	LogMessage("Channel %d %s mode\n", Channel, Modes[Config.LoRaDevices[Channel].SpeedMode]);
 
-	// writeRegister(Channel, REG_PAYLOAD_LENGTH, Config.LoRaDevices[Channel].PayloadLength);
-	// writeRegister(Channel, REG_RX_NB_BYTES, Config.LoRaDevices[Channel].PayloadLength);
-	writeRegister(Channel, REG_PAYLOAD_LENGTH, 255);
-	writeRegister(Channel, REG_RX_NB_BYTES, 255);
+	writeRegister(Channel, REG_PAYLOAD_LENGTH, Config.LoRaDevices[Channel].PayloadLength);
+	writeRegister(Channel, REG_RX_NB_BYTES, Config.LoRaDevices[Channel].PayloadLength);
 
 	// writeRegister(Channel, REG_HOP_PERIOD,0xFF);
 	
@@ -716,7 +714,7 @@ void LoadConfigFile()
 			Config.LoRaDevices[Channel].SpeedMode = 0;
 			sprintf(Keyword, "mode_%d", Channel);
 			Config.LoRaDevices[Channel].SpeedMode = ReadInteger(fp, Keyword, 0, 0);
-			// Config.LoRaDevices[Channel].PayloadLength = Config.LoRaDevices[Channel].SpeedMode == 0 ? 80 : 255;
+			Config.LoRaDevices[Channel].PayloadLength = 255;
 			ChannelPrintf(Channel, 0, 1, "Channel %d %sMHz %s mode", Channel, Config.LoRaDevices[Channel].Frequency, Modes[Config.LoRaDevices[Channel].SpeedMode]);
 
 			if (Config.LoRaDevices[Channel].SpeedMode == 4)
@@ -834,14 +832,20 @@ void LoadConfigFile()
 			}
 			
 			sprintf(Keyword, "implicit_%d", Channel);
-			if (ReadBoolean(fp, Keyword, 0, &Temp))
+			Temp = ReadInteger(fp, Keyword, 0, 0);
+			if (Temp)
 			{
-				if (Temp)
-				{
 					Config.LoRaDevices[Channel].ImplicitOrExplicit = IMPLICIT_MODE;
-				}
+					if (Temp > 5)
+						Config.LoRaDevices[Channel].PayloadLength = Temp;
+					else
+						Temp = Config.LoRaDevices[Channel].PayloadLength;
+					LogMessage("Implicit Length=%d; ", Temp);
+			} else {
+				// Unable to force Implicit off in Mode 1, so flag it up for the user
+				LogMessage("%s Mode; ", Config.LoRaDevices[Channel].ImplicitOrExplicit?"Implicit":"Explicit");
 			}
-			
+
 			sprintf(Keyword, "coding_%d", Channel);
 			Temp = ReadInteger(fp, Keyword, 0, 0);
 			if ((Temp >= 5) && (Temp <= 8))
