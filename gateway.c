@@ -13,7 +13,6 @@
 #include <stdint.h>
 #include <time.h>
 #include <stdarg.h>
-#include <pthread.h>
 #include <curses.h>
 #include <math.h>
 
@@ -21,8 +20,6 @@
 #include <wiringPiSPI.h>
 
 #include "urlencode.h"
-#include "base64.h"
-#include "ssdv.h"
 #include "kml.h"
 #include "global.h"
 
@@ -1090,21 +1087,13 @@ uint16_t CRC16(char *ptr)
 
 int main(int argc, char **argv)
 {
-	char Message[300], filename[100];
-	int Bytes, ImageNumber, PreviousImageNumber, PacketNumber, PreviousPacketNumber;
-	uint32_t CallsignCode, PreviousCallsignCode, LoopCount[2];
-	pthread_t /* CurlThread, */ SSDVThread;
-	FILE *fp;
+	char Message[300];
+	int Bytes; // ImageNumber, PacketNumber;
+	uint32_t CallsignCode, LoopCount[2];
 	WINDOW * mainwin;
 		
 	mainwin = InitDisplay();
 	LogMessage("**** LoRa Gateway by daveake ****\n");
-
-	PreviousImageNumber = -1;
-	PreviousCallsignCode = 0;
-	PreviousPacketNumber = 0;
-	
-	fp = NULL;
 	
 	Config.LoRaDevices[0].InUse = 0;
 	Config.LoRaDevices[1].InUse = 0;
@@ -1149,12 +1138,6 @@ int main(int argc, char **argv)
 
 	LoopCount[0] = 0;
 	LoopCount[1] = 0;
-	
-	if (pthread_create(&SSDVThread, NULL, SSDVLoop, NULL))
-	{
-		fprintf(stderr, "Error creating SSDV thread\n");
-		return 1;
-	}
 	
 	
 	while (1)
@@ -1288,7 +1271,7 @@ int main(int argc, char **argv)
 						else if (Message[1] == 0x66)
 						{
 							// SSDV packet
-							char Callsign[7], *FileMode, *EncodedCallsign, *EncodedEncoding, *EncodedData, HexString[513];
+							char Callsign[7], *EncodedCallsign, *EncodedEncoding, *EncodedData, HexString[513];
 							Message[0] = 0x55;
 							
 							CallsignCode = Message[2]; CallsignCode <<= 8;
@@ -1298,40 +1281,12 @@ int main(int argc, char **argv)
 							
 							decode_callsign(Callsign, CallsignCode);
 														
-							ImageNumber = Message[6];
-							PacketNumber = Message[8];
-				
-							// Create new file ?
-							if ((ImageNumber != PreviousImageNumber) || (PacketNumber <= PreviousPacketNumber) || (CallsignCode != PreviousCallsignCode))
-							{
-								// New image so new file
-								// FileMode = "wb";
-								FileMode = "ab";
-								Config.LoRaDevices[Channel].SSDVMissing = PacketNumber;
-							}
-							else
-							{
-								FileMode = "ab";
-								if (PacketNumber > (PreviousPacketNumber+1))
-								{
-									Config.LoRaDevices[Channel].SSDVMissing += PacketNumber - PreviousPacketNumber - 1;
-								}
-							}
+							// ImageNumber = Message[6];
+							// PacketNumber = Message[8];
 
-							LogMessage("SSDV Packet, Callsign %s, Image %d, Packet %d, %d Missing\n", Callsign, Message[6], Message[7] * 256 + Message[8], Config.LoRaDevices[Channel].SSDVMissing);
+							LogMessage("SSDV Packet, Callsign %s, Image %d, Packet %d\n",
+										Callsign, Message[6], Message[7] * 256 + Message[8] );
 							ChannelPrintf(Channel, 3, 1, "SSDV Packet %d bytes          ", Bytes);
-							
-							PreviousImageNumber = ImageNumber;
-							PreviousPacketNumber = PacketNumber;
-							PreviousCallsignCode = CallsignCode;
-
-							// Save to file
-							sprintf(filename, "/tmp/%s_%d.bin", Callsign, ImageNumber);
-							fp = fopen(filename, FileMode);
-							if (fp) {
-								fwrite(Message, 1, 256, fp); 
-								fclose(fp);
-							}
 
 							// Upload to server
 							if (Config.EnableSSDV)
@@ -1339,10 +1294,6 @@ int main(int argc, char **argv)
 								EncodedCallsign = url_encode(Callsign); 
 								EncodedEncoding = url_encode("hex"); 
 
-								// Base64Data = base64_encode(Message, 256, &output_length);
-								// printf("output_length=%d, byte=%02Xh\n", output_length, Base64Data[output_length]);
-								// Base64Data[output_length] = '\0';
-								// printf ("Base64Data '%s'\n", Base64Data);
 								ConvertStringToHex(HexString, Message, 256);
 								EncodedData = url_encode(HexString); 
 
@@ -1350,7 +1301,6 @@ int main(int argc, char **argv)
 								
 								free(EncodedCallsign);
 								free(EncodedEncoding);
-								// free(Base64Data);
 								free(EncodedData);
 							}
 
