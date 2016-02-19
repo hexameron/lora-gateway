@@ -1062,7 +1062,7 @@ int main(int argc, char **argv)
 	uint32_t CallsignCode, LoopCount[2];
 	WINDOW * mainwin;
 	
-	curl_global_init(CURL_GLOBAL_ALL);	
+	curlInit();
 	mainwin = InitDisplay();
 	LogMessage("**** LoRa Gateway by daveake ****\n");
 	
@@ -1308,7 +1308,6 @@ int main(int argc, char **argv)
 
 	CloseDisplay(mainwin);
 	curlClean();
-	curl_global_cleanup();
 	return 0;
 }
 
