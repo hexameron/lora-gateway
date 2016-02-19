@@ -496,10 +496,13 @@ size_t write_data(void *buffer, size_t size, size_t nmemb, void *userp)
    return size * nmemb;
 }
 
+// curl easy setup does not copy strings
+char PostTelemetry[16][200];
+int postTelem = 0;
+
 void UploadTelemetryPacket(char *Telemetry)
 {
 	CURL *curl;
-	char PostFields[200];
 
 	if (Config.EnableHabitat && (strlen(Telemetry) < 120) )
 	{
@@ -514,8 +517,9 @@ void UploadTelemetryPacket(char *Telemetry)
 			curl_easy_setopt(curl, CURLOPT_URL, "http://habitat.habhub.org/transition/payload_telemetry");
 		
 			// Now specify the POST data
-			snprintf(PostFields, 199, "callsign=%s&string=%s&string_type=ascii&metadata={}", Config.Tracker, Telemetry);
-			curl_easy_setopt(curl, CURLOPT_POSTFIELDS, PostFields);
+			postTelem = (postTelem + 1) & 15;
+			snprintf(PostTelemetry[postTelem], 199, "callsign=%s&string=%s&string_type=ascii&metadata={}", Config.Tracker, Telemetry);
+			curl_easy_setopt(curl, CURLOPT_POSTFIELDS, PostTelemetry[postTelem]);
 	 
 			curlQueue(curl);		
 			/* cleanup handle later */
@@ -523,10 +527,12 @@ void UploadTelemetryPacket(char *Telemetry)
 	}
 }
 			
+char PostImage[16][1000];
+int postImg = 0;
+
 void UploadImagePacket(char *EncodedCallsign, char *EncodedEncoding, char *EncodedData)
 {
 	CURL *curl;
-	char PostFields[1000];
  
 	/* get a curl handle */ 
 	curl = curl_easy_init();
@@ -540,9 +546,10 @@ void UploadImagePacket(char *EncodedCallsign, char *EncodedEncoding, char *Encod
 		   data. */ 
 		curl_easy_setopt(curl, CURLOPT_URL, "http://www.sanslogic.co.uk/ssdv/data.php");
 	
-		/* Now specify the POST data */ 
-		sprintf(PostFields, "callsign=%s&encoding=%s&packet=%s", Config.Tracker, EncodedEncoding, EncodedData);
-		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, PostFields);
+		/* Now specify the POST data */
+		postImg = (postImg + 1) & 15;
+		sprintf(PostImage[postImg], "callsign=%s&encoding=%s&packet=%s", Config.Tracker, EncodedEncoding, EncodedData);
+		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, PostImage[postImg]);
  
 		curlQueue(curl);
 		/* cleanup handle later*/ 

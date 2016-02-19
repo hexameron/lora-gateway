@@ -107,8 +107,8 @@ void curlQueue(CURL *easy_handle )
   if(!easy_handle)
 	return;
 
-  // drop messeges if the queue is blocked
-  if(running > 64) {
+  /* drop messages if the queue is blocked  - but data has already been overwritten */
+  if(running >= 16) {
 	curl_easy_cleanup(easy_handle);
 	return;
   }
