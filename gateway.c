@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <curl/curl.h>
 #include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
@@ -19,6 +18,7 @@
 #include <wiringPi.h>
 #include <wiringPiSPI.h>
 
+#include "hiperfifo.h"
 #include "urlencode.h"
 #include "kml.h"
 #include "global.h"
@@ -498,15 +498,11 @@ size_t write_data(void *buffer, size_t size, size_t nmemb, void *userp)
 
 void UploadTelemetryPacket(char *Telemetry)
 {
+	CURL *curl;
+	char PostFields[200];
+
 	if (Config.EnableHabitat && (strlen(Telemetry) < 120) )
 	{
-		CURL *curl;
-		CURLcode res;
-		char PostFields[200];
-	 
-		/* In windows, this will init the winsock stuff */ 
-		curl_global_init(CURL_GLOBAL_ALL);
-	 
 		/* get a curl handle */ 
 		curl = curl_easy_init();
 		if (curl)
@@ -521,31 +517,16 @@ void UploadTelemetryPacket(char *Telemetry)
 			snprintf(PostFields, 199, "callsign=%s&string=%s&string_type=ascii&metadata={}", Config.Tracker, Telemetry);
 			curl_easy_setopt(curl, CURLOPT_POSTFIELDS, PostFields);
 	 
-			// Perform the request, res will get the return code
-			res = curl_easy_perform(curl);
-		
-			// Check for errors
-			if(res != CURLE_OK)
-			{
-				fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-			}
-			
-			// always cleanup
-			curl_easy_cleanup(curl);
+			curlQueue(curl);		
+			/* cleanup handle later */
 		}
-	  
-		curl_global_cleanup();
 	}
 }
 			
 void UploadImagePacket(char *EncodedCallsign, char *EncodedEncoding, char *EncodedData)
 {
 	CURL *curl;
-	CURLcode res;
 	char PostFields[1000];
- 
-	/* In windows, this will init the winsock stuff */ 
-	curl_global_init(CURL_GLOBAL_ALL);
  
 	/* get a curl handle */ 
 	curl = curl_easy_init();
@@ -563,20 +544,9 @@ void UploadImagePacket(char *EncodedCallsign, char *EncodedEncoding, char *Encod
 		sprintf(PostFields, "callsign=%s&encoding=%s&packet=%s", Config.Tracker, EncodedEncoding, EncodedData);
 		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, PostFields);
  
-		/* Perform the request, res will get the return code */ 
-		res = curl_easy_perform(curl);
-	
-		/* Check for errors */ 
-		if(res != CURLE_OK)
-		{
-			fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-		}
-		
-		/* always cleanup */ 
-		curl_easy_cleanup(curl);
+		curlQueue(curl);
+		/* cleanup handle later*/ 
 	}
-	  
-	curl_global_cleanup();
 }
 
 void ReadString(FILE *fp, char *keyword, char *Result, int Length, int NeedValue)
@@ -1091,7 +1061,8 @@ int main(int argc, char **argv)
 	int Bytes; // ImageNumber, PacketNumber;
 	uint32_t CallsignCode, LoopCount[2];
 	WINDOW * mainwin;
-		
+	
+	curl_global_init(CURL_GLOBAL_ALL);	
 	mainwin = InitDisplay();
 	LogMessage("**** LoRa Gateway by daveake ****\n");
 	
@@ -1328,6 +1299,7 @@ int main(int argc, char **argv)
 					{
 						ChannelPrintf(Channel, 5, 1, "%us since last packet   ", (unsigned int)(time(NULL) - Config.LoRaDevices[Channel].LastPacketAt));
 					}
+					curlPush();
 				}
 			}
 		}
@@ -1335,7 +1307,8 @@ int main(int argc, char **argv)
  	}
 
 	CloseDisplay(mainwin);
-	
+	curlClean();
+	curl_global_cleanup();
 	return 0;
 }
 
