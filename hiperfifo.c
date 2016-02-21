@@ -109,6 +109,12 @@ void curlQueue(CURL *easy_handle )
 
   /* drop messages if the queue is blocked  - but data has already been overwritten */
   if(running >= 16) {
+	// first check if any have recently finished
+	rc = curl_multi_perform(multi, &running);
+        mcode_or_die("curlPush: curl_multi_perform", rc);
+  }
+  if(running >= 16) {
+	// drop if still blocked
 	curl_easy_cleanup(easy_handle);
 	return;
   }
@@ -122,11 +128,11 @@ void curlPush()
 {
 	CURLMcode rc;
 
-	// clear completed handles
-	check_multi_info();
-
 	if (!pending)
 		return;
+
+	// clear completed handles
+	check_multi_info();
 
 	// start new handles
 	rc = curl_multi_perform(multi, &running);
@@ -139,6 +145,7 @@ void curlPush()
 	     via ctrl-C, but it is here to show how cleanup /would/ be done. */
 void curlClean()
 {
+  check_multi_info();
   curl_multi_cleanup(multi);
   curl_global_cleanup();
 }
