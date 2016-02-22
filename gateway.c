@@ -290,7 +290,7 @@ void setupRFM98(int Channel)
 		pinMode(Config.LoRaDevices[Channel].DIO0, INPUT);
 		pinMode(Config.LoRaDevices[Channel].DIO5, INPUT);
 
-		if (wiringPiSPISetup(Channel, 500000) < 0)
+		if (wiringPiSPISetup(Channel, 1000000) < 0)
 		{
 			fprintf(stderr, "Failed to open SPI port.  Try loading spi library with 'gpio load spi'");
 			exit(1);
@@ -1062,12 +1062,33 @@ uint16_t CRC16(char *ptr)
 }
 
 
+char packet[2][300];
+void getPacket(Channel)
+{
+	if ( digitalRead(Config.LoRaDevices[Channel].DIO0) )
+		packet[Channel][0] = receiveMessage( Channel, &packet[Channel][1] );
+}
+
+void gpioInterrupt0(void) {
+	getPacket(0);
+}
+
+void gpioInterrupt1(void) {
+        getPacket(1);
+}
+
 int main(int argc, char **argv)
 {
-	char Message[300];
-	int Bytes; // ImageNumber, PacketNumber;
+	char *Message;
+	int Channel, Bytes;
 	uint32_t CallsignCode, LoopCount[2];
 	WINDOW * mainwin;
+
+	if (wiringPiSetup() < 0)
+	{
+		fprintf(stderr, "Failed to open wiringPi\n");
+		exit(1);
+	}
 	
 	curlInit();
 	mainwin = InitDisplay();
@@ -1075,6 +1096,8 @@ int main(int argc, char **argv)
 	
 	Config.LoRaDevices[0].InUse = 0;
 	Config.LoRaDevices[1].InUse = 0;
+	packet[0][0] = 0;
+	packet[1][0] = 0;
 	
 	if (NewBoard())
 	{
@@ -1101,49 +1124,38 @@ int main(int argc, char **argv)
 
 	LoadConfigFile();
 	LoadPayloadFiles();
-	
-	if (wiringPiSetup() < 0)
-	{
-		fprintf(stderr, "Failed to open wiringPi\n");
-		exit(1);
-	}
-	
-	setupRFM98(0);
-	setupRFM98(1);
-	
-	ShowPacketCounts(0);
-	ShowPacketCounts(1);
 
-	LoopCount[0] = 0;
-	LoopCount[1] = 0;
-	
-	
+	for (Channel=0; Channel<=1; Channel++) {
+		setupRFM98(Channel);
+		LoopCount[Channel] = 0;
+		if (Config.LoRaDevices[Channel].InUse) {
+			ShowPacketCounts(Channel);
+
+			if ( digitalRead(Config.LoRaDevices[Channel].DIO0) )
+				packet[Channel][0] = receiveMessage( Channel, &packet[Channel][1] );
+			wiringPiISR (Config.LoRaDevices[Channel].DIO0, INT_EDGE_RISING, Channel? &gpioInterrupt1:&gpioInterrupt0);
+		}
+	}
+
 	while (1)
 	{
-		int Channel;
-		
 		for (Channel=0; Channel<=1; Channel++)
 		{
 			if (Config.LoRaDevices[Channel].InUse)
 			{
-				if (digitalRead(Config.LoRaDevices[Channel].DIO0))
 				{
-					Bytes = receiveMessage(Channel, Message+1);
-					
+				Message = packet[Channel];
+				Bytes = Message[0];
+				Message[0] = 0;
 					if (Bytes > 0)
 					{
-						// LogMessage("Channel %d data available - %d bytes\n", Channel, Bytes);
-						// LogMessage("Line = '%s'\n", Message);
-
-						// Habitat upload
-						// $$....
 						if (Message[1] == '!')
 						{
 							LogMessage("Ch %d: Uploaded message %s\n", Channel, Message+1);
 						}
 						else if (Message[1] == '^')
 						{
-							ChannelPrintf(Channel, 3, 1, "Calling message %d bytes      ", strlen(Message+1));
+							ChannelPrintf(Channel, 2, 1, "Calling message %d bytes      ", strlen(Message+1));
 							ProcessCallingMessage(Channel, Message+3);
 							LogMessage("%s\n", Message+1);
 						}
