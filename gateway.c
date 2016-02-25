@@ -385,7 +385,7 @@ void ProcessCallingMessage(int Channel, char *Message)
 }
 
 
-
+/* Critical section - concurrent use for wiringPi interrupts */
 int receiveMessage(int Channel, char *message)
 {
 	int i, Bytes, currentAddr, x;
@@ -394,8 +394,6 @@ int receiveMessage(int Channel, char *message)
 	Bytes = 0;
 	
 	x = readRegister(Channel, REG_IRQ_FLAGS);
-	// LogMessage("Message status = %02Xh\n", x);
-  
 	// clear the rxDone flag
 	writeRegister(Channel, REG_IRQ_FLAGS, 0x40); 
 
@@ -404,55 +402,33 @@ int receiveMessage(int Channel, char *message)
 	// check for payload crc issues (0x20 is the bit we are looking for
 	if((x & 0x20) == 0x20)
 	{
-		LogMessage("CRC Failure, RSSI %d\n", Config.LoRaDevices[Channel].packet_rssi);
-		// reset the crc flags
 		writeRegister(Channel, REG_IRQ_FLAGS, 0x20);
-		ChannelPrintf(Channel, 3, 1, "CRC Failure %02Xh             ", x);
 		Config.LoRaDevices[Channel].BadCRCCount++;
-		ShowPacketCounts(Channel);
 	}
 	else
 	{
 		currentAddr = readRegister(Channel, REG_FIFO_RX_CURRENT_ADDR);
-		// LogMessage("currentAddr = %d\n", currentAddr);
 		Bytes = readRegister(Channel, REG_RX_NB_BYTES);
-		// LogMessage("%d bytes in packet\n", Bytes);
-		Config.LoRaDevices[Channel].packet_snr = ( (int8_t)readRegister(Channel, REG_PACKET_SNR) ) / 4;
-		Config.LoRaDevices[Channel].freq_offset = (int)FrequencyError(Channel);
-		Config.LoRaDevices[Channel].base_rssi = readRegister(Channel, REG_CURRENT_RSSI) - RSSI_OFFSET;
-
-		ChannelPrintf(Channel,  9, 1, "Packet   SNR = %4d   ", Config.LoRaDevices[Channel].packet_snr);
-		ChannelPrintf(Channel, 10, 1, "Packet  RSSI = %4d   ", Config.LoRaDevices[Channel].packet_rssi);
-		ChannelPrintf(Channel,  2, 1, "Freq. Offset = %4d   ", Config.LoRaDevices[Channel].freq_offset);
-
 		writeRegister(Channel, REG_FIFO_ADDR_PTR, currentAddr); 
 		
-		/*
-		// now loop over the fifo getting the data
-		for(i = 0; i < Bytes; i++)
-		{
-			message[i] = (unsigned char)readRegister(Channel, REG_FIFO);
-		}
-		*/
 		data[0] = REG_FIFO;
 		wiringPiSPIDataRW(Channel, data, Bytes+1);
 		for (i=0; i<=Bytes; i++)
 		{
 			message[i] = data[i+1];
 		}
-		
 		message[Bytes] = '\0';
-	
-		// writeRegister(Channel, REG_FIFO_ADDR_PTR, 0);  // currentAddr);   
-		// writeRegister(Channel, REG_FIFO_ADDR_PTR, 0);
-		// writeRegister(Channel, REG_FIFO_RX_BASE_AD, 0);
+		Config.LoRaDevices[Channel].packet_snr = ( (int8_t)readRegister(Channel, REG_PACKET_SNR) ) / 4;
+		Config.LoRaDevices[Channel].base_rssi = readRegister(Channel, REG_CURRENT_RSSI) - RSSI_OFFSET;		
+		Config.LoRaDevices[Channel].freq_offset = (int)FrequencyError(Channel);
 	} 
 
 	// Clear all flags
 	writeRegister(Channel, REG_IRQ_FLAGS, 0xFF); 
-  
-  return Bytes;
+	return Bytes;
 }
+/* Critical section - concurrent use for wiringPi interrupts */
+
 
 static char *decode_callsign(char *callsign, uint32_t code)
 {
@@ -1298,26 +1274,29 @@ int main(int argc, char **argv)
 						}
 						else
 						{
-							LogMessage("Unknown packet type is %02Xh, RSSI %d\n", Message[1], Config.LoRaDevices[Channel].packet_rssi);
-							ChannelPrintf(Channel, 3, 1, "Unknown Packet %d, %d bytes  ", Message[1], Bytes);
 							Config.LoRaDevices[Channel].UnknownCount++;
 						}
 						
 						Config.LoRaDevices[Channel].LastPacketAt = time(NULL);
-
-						ShowPacketCounts(Channel);
 					}
 				}
 				
+				// redraw screen every second
 				if (++LoopCount[Channel] > 50)
 				{
+					// Check for missed interrupt
+					getPacket(Channel);
+
 					LoopCount[Channel] = 0;
-					ShowPacketCounts(Channel);
-					ChannelPrintf(Channel, 11, 1, "Current RSSI = %4d   ", readRegister(Channel, REG_CURRENT_RSSI) - RSSI_OFFSET);
+					ChannelPrintf(Channel,  2, 1, "Freq. Offset = %4d   ", Config.LoRaDevices[Channel].freq_offset);
 					if (Config.LoRaDevices[Channel].LastPacketAt > 0)
 					{
 						ChannelPrintf(Channel, 5, 1, "%us since last packet   ", (unsigned int)(time(NULL) - Config.LoRaDevices[Channel].LastPacketAt));
 					}
+					ShowPacketCounts(Channel); // lines 6,7,8
+					ChannelPrintf(Channel,  9, 1, "Packet   SNR = %4d   ", Config.LoRaDevices[Channel].packet_snr);
+					ChannelPrintf(Channel, 10, 1, "Packet  RSSI = %4d   ", Config.LoRaDevices[Channel].packet_rssi);
+					ChannelPrintf(Channel, 11, 1, "Current RSSI = %4d   ", readRegister(Channel, REG_CURRENT_RSSI) - RSSI_OFFSET);
 					curlPush();
 				}
 			}
