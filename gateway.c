@@ -123,11 +123,12 @@ struct TPayload Payloads[16];
 
 struct TBinaryPacket
 {
-	uint8_t 	PayloadIDs;
+	uint8_t		PayloadType;
+	uint8_t 	PayloadID;
 	uint16_t	Counter;
 	uint16_t	BiSeconds;
-	float		Latitude;
-	float		Longitude;
+	union { float f; int32_t i; } Latitude;
+	union { float f; int32_t i; } Longitude;
 	uint16_t	Altitude;
 };
 
@@ -420,7 +421,10 @@ int receiveMessage(int Channel, char *message)
 		message[Bytes] = '\0';
 		Config.LoRaDevices[Channel].packet_snr = ( (int8_t)readRegister(Channel, REG_PACKET_SNR) ) / 4;
 		Config.LoRaDevices[Channel].base_rssi = readRegister(Channel, REG_CURRENT_RSSI) - RSSI_OFFSET;		
-		Config.LoRaDevices[Channel].freq_offset = (int)FrequencyError(Channel);
+		if (Config.LoRaDevices[Channel].Bandwidth < BANDWIDTH_41K7)
+			Config.LoRaDevices[Channel].freq_offset = (int)FrequencyError(Channel);
+		else
+			Config.LoRaDevices[Channel].freq_offset = 0;
 	} 
 
 	// Clear all flags
@@ -1164,75 +1168,37 @@ int main(int argc, char **argv)
 							Message[strlen(Message+1)] = '\0';
 							LogMessage("%s\n", Message+1);
 						}
-						else if ((Message[1] & 0xC0) == 0xC0)
+						else if ( 0x80 == Message[1] )
 						{
 							// Binary telemetry packet
 							struct TBinaryPacket BinaryPacket;
 							char Data[100], Sentence[100];
-							int SourceID, SenderID;
-							
-							SourceID = Message[1] & 0x07;
-							SenderID = (Message[1] >> 3) & 0x07;
 
 							ChannelPrintf(Channel, 3, 1, "Binary Telemetry              ");
 
-							memcpy(&BinaryPacket, Message+1, sizeof(BinaryPacket));
-							
 							strcpy(Config.LoRaDevices[Channel].Payload, "Binary");
+							memcpy(&BinaryPacket, &Message[1], sizeof(BinaryPacket));
 							Config.LoRaDevices[Channel].Seconds = (unsigned long) BinaryPacket.BiSeconds * 2L;
 							Config.LoRaDevices[Channel].Counter = BinaryPacket.Counter;
-							Config.LoRaDevices[Channel].Latitude = BinaryPacket.Latitude;
-							Config.LoRaDevices[Channel].Longitude = BinaryPacket.Longitude;
+							Config.LoRaDevices[Channel].Latitude = (double)BinaryPacket.Latitude.f;
+							Config.LoRaDevices[Channel].Longitude = (double)BinaryPacket.Longitude.f;
 							Config.LoRaDevices[Channel].Altitude = BinaryPacket.Altitude;
 
-							sprintf(Data, "%s,%u,%02d:%02d:%02d,%8.5f,%8.5f,%u",
-										  Payloads[SourceID].Payload,
+							sprintf(Data, "BINARY_%d,%u,%02d:%02d:%02d,%8.5f,%8.5f,%u",
+										  BinaryPacket.PayloadID,
 										  BinaryPacket.Counter,
 										  (int)(Config.LoRaDevices[Channel].Seconds / 3600),
 										  (int)((Config.LoRaDevices[Channel].Seconds / 60) % 60),
 										  (int)(Config.LoRaDevices[Channel].Seconds % 60),
-										  BinaryPacket.Latitude,
-										  BinaryPacket.Longitude,
-										  BinaryPacket.Altitude);
+										  Config.LoRaDevices[Channel].Latitude,
+										  Config.LoRaDevices[Channel].Longitude,
+										  Config.LoRaDevices[Channel].Altitude );
 							sprintf(Sentence, "$$%s*%04X\n", Data, CRC16(Data));
 							
-							UploadTelemetryPacket(Sentence);
-
+							// UploadTelemetryPacket(Sentence);
 							DoPositionCalcs(Channel);
-							
 							Config.LoRaDevices[Channel].TelemetryCount++;
-							if (LOG_KML & Config.LogLevel)
-								UpdatePayloadKML(Payloads[SourceID].Payload, Config.LoRaDevices[Channel].Seconds, 
-									Config.LoRaDevices[Channel].Latitude, Config.LoRaDevices[Channel].Longitude, 
-									Config.LoRaDevices[Channel].Altitude);
-
-
-
-							LogMessage("Ch %d: Sender %d Source %d (%s) Position %8.5lf, %8.5lf, %05u\n",
-								Channel,
-								SenderID,
-								SourceID,
-								Payloads[SourceID].Payload,
-								Config.LoRaDevices[Channel].Latitude,
-								Config.LoRaDevices[Channel].Longitude,
-								Config.LoRaDevices[Channel].Altitude);
-						}
-						else if ((Message[1] & 0xC0) == 0x80)
-						{
-							// Binary upload packet
-							int SenderID, TargetID;
-							
-							ChannelPrintf(Channel, 3, 1, "Uplink Message                ");
-
-							TargetID = Message[1] & 0x07;
-							SenderID = (Message[1] >> 3) & 0x07;
-
-							LogMessage("Ch %d: Sender %d Target %d (%s) Message %s\n",
-										Channel,
-										SenderID,
-										TargetID,
-										Payloads[TargetID].Payload,
-										Message+2);
+							LogMessage("Ch %d:%s\n",Channel, Sentence);
 						}
 						else if (Message[1] == 0x66)
 						{
