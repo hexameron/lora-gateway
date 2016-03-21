@@ -60,21 +60,23 @@ void mcode_or_die(const char *where, CURLMcode code)
         rc = curl_multi_perform(multi, &running);
 			
     switch (rc) {
+      case     CURLM_CALL_MULTI_PERFORM:
+      case     CURLM_OK:                 return;
+
+      case     CURLM_BAD_SOCKET:         s="CURLM_BAD_SOCKET";         break;
       case     CURLM_BAD_HANDLE:         s="CURLM_BAD_HANDLE";         break;
       case     CURLM_BAD_EASY_HANDLE:    s="CURLM_BAD_EASY_HANDLE";    break;
       case     CURLM_OUT_OF_MEMORY:      s="CURLM_OUT_OF_MEMORY";      break;
       case     CURLM_INTERNAL_ERROR:     s="CURLM_INTERNAL_ERROR";     break;
       case     CURLM_UNKNOWN_OPTION:     s="CURLM_UNKNOWN_OPTION";     break;
-      case     CURLM_LAST:               s="CURLM_LAST";               break;
-      default:                           s="CURLM_unknown";            break;
 
-      case     CURLM_BAD_SOCKET:
-      case     CURLM_CALL_MULTI_PERFORM:
-      case     CURLM_OK:
-                        return;
+//    case     CURLM_ADDED_ALREADY:
+      case     CURLM_LAST:
+      default:				printf("\n    Unexpected curl error:  %s  \n",where);
+					return;
     }
 
-    printf("Curl fatal error:%s,%s\n",where,s);
+    printf("\n\n Curl fatal error:%s,%s\n",where,s);
     exit(code);
 }
 
@@ -90,8 +92,8 @@ void check_multi_info()
     if(msg->msg == CURLMSG_DONE) {
       easy = msg->easy_handle;
       res = msg->data.result;
-      mcode_or_die("check_multi_info: curl_multi_socket_action", res);
-
+      if (res != CURLE_OK)
+		printf("\n Error in curl_multi_info_read: %d \n", res);
       curl_multi_remove_handle(multi, easy);
       curl_easy_cleanup(easy);
     }
@@ -111,7 +113,7 @@ void curlQueue(CURL *easy_handle )
   if(running >= 16) {
 	// first check if any have recently finished
 	rc = curl_multi_perform(multi, &running);
-        mcode_or_die("curlPush: curl_multi_perform", rc);
+        mcode_or_die("curlQueue: curl_multi_perform", rc);
   }
   if(running >= 16) {
 	// drop if still blocked

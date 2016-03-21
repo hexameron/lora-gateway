@@ -476,13 +476,10 @@ size_t write_data(void *buffer, size_t size, size_t nmemb, void *userp)
    return size * nmemb;
 }
 
-// curl easy setup does not copy strings
-char PostTelemetry[16][200];
-int postTelem = 0;
-
 void UploadTelemetryPacket(char *Telemetry)
 {
 	CURL *curl;
+	char PostTelemetry[200];
 
 	if (Config.EnableHabitat && (strlen(Telemetry) < 120) )
 	{
@@ -497,22 +494,19 @@ void UploadTelemetryPacket(char *Telemetry)
 			curl_easy_setopt(curl, CURLOPT_URL, "http://habitat.habhub.org/transition/payload_telemetry");
 		
 			// Now specify the POST data
-			postTelem = (postTelem + 1) & 15;
-			snprintf(PostTelemetry[postTelem], 199, "callsign=%s&string=%s&string_type=ascii&metadata={}", Config.Tracker, Telemetry);
-			curl_easy_setopt(curl, CURLOPT_POSTFIELDS, PostTelemetry[postTelem]);
+			snprintf(PostTelemetry, 199, "callsign=%s&string=%s&string_type=ascii&metadata={}", Config.Tracker, Telemetry);
+			curl_easy_setopt(curl, CURLOPT_COPYPOSTFIELDS, PostTelemetry);
 	 
 			curlQueue(curl);		
 			/* cleanup handle later */
 		}
 	}
 }
-			
-char PostImage[16][1000];
-int postImg = 0;
 
 void UploadImagePacket(char *EncodedCallsign, char *EncodedEncoding, char *EncodedData)
 {
 	CURL *curl;
+	char PostImage[1000];
  
 	/* get a curl handle */ 
 	curl = curl_easy_init();
@@ -527,9 +521,8 @@ void UploadImagePacket(char *EncodedCallsign, char *EncodedEncoding, char *Encod
 		curl_easy_setopt(curl, CURLOPT_URL, "http://www.sanslogic.co.uk/ssdv/data.php");
 	
 		/* Now specify the POST data */
-		postImg = (postImg + 1) & 15;
-		sprintf(PostImage[postImg], "callsign=%s&encoding=%s&packet=%s", Config.Tracker, EncodedEncoding, EncodedData);
-		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, PostImage[postImg]);
+		sprintf(PostImage, "callsign=%s&encoding=%s&packet=%s", Config.Tracker, EncodedEncoding, EncodedData);
+		curl_easy_setopt(curl, CURLOPT_COPYPOSTFIELDS, PostImage);
  
 		curlQueue(curl);
 		/* cleanup handle later*/ 
