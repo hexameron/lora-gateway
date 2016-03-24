@@ -130,6 +130,7 @@ struct TBinaryPacket
 	union { float f; int32_t i; } Latitude;
 	union { float f; int32_t i; } Longitude;
 	uint16_t	Altitude;
+	uint16_t	Checksum;
 };
 
 const char *Modes[5] = {"slow", "SSDV", "repeater", "turbo", "TurboX"};
@@ -827,7 +828,7 @@ void LoadPayloadFile(int ID)
 
 	if ((fp = fopen(filename, "r")) != NULL)
 	{
-		LogMessage("Reading payload file %s\n", filename);
+		//LogMessage("Reading payload file %s\n", filename);
 		ReadString(fp, "payload", Payloads[ID].Payload, sizeof(Payloads[ID].Payload), 1);
 		LogMessage("Payload %d = '%s'\n", ID, Payloads[ID].Payload);
 		
@@ -1011,7 +1012,7 @@ int NewBoard(void)
 	return boardRev;
 }	
 
-uint16_t CRC16(char *ptr)
+uint16_t CRC16(char *ptr, size_t len)
 {
     uint16_t CRC, xPolynomial;
 	int j;
@@ -1019,9 +1020,9 @@ uint16_t CRC16(char *ptr)
     CRC = 0xffff;           // Seed
     xPolynomial = 0x1021;
    
-    for (; *ptr; ptr++)
+    for (; len > 0; len--)
     {   // For speed, repeat calculation instead of looping for each bit
-        CRC ^= (((unsigned int)*ptr) << 8);
+        CRC ^= (((unsigned int)*ptr++) << 8);
         for (j=0; j<8; j++)
         {
             if (CRC & 0x8000)
@@ -1153,15 +1154,11 @@ int main(int argc, char **argv)
 												Config.LoRaDevices[Channel].freq_offset);
 								UpdatePayloadLOG(Message+1);
 							}
-							if (LOG_KML & Config.LogLevel)
-								UpdatePayloadKML(Config.LoRaDevices[Channel].Payload, Config.LoRaDevices[Channel].Seconds, 
-									Config.LoRaDevices[Channel].Latitude, Config.LoRaDevices[Channel].Longitude, 
-									Config.LoRaDevices[Channel].Altitude);
 
 							Message[strlen(Message+1)] = '\0';
 							LogMessage("%s\n", Message+1);
 						}
-						else if ( 0x80 == Message[1] )
+						else if (0x80 == Message[1])
 						{
 							// Binary telemetry packet
 							struct TBinaryPacket BinaryPacket;
@@ -1169,16 +1166,23 @@ int main(int argc, char **argv)
 
 							ChannelPrintf(Channel, 3, 1, "Binary Telemetry              ");
 
-							strcpy(Config.LoRaDevices[Channel].Payload, "Binary");
+							strcpy(Config.LoRaDevices[Channel].Payload,
+										Payloads[0xf & BinaryPacket.PayloadID].Payload);
 							memcpy(&BinaryPacket, &Message[1], sizeof(BinaryPacket));
 							Config.LoRaDevices[Channel].Seconds = (unsigned long) BinaryPacket.BiSeconds * 2L;
 							Config.LoRaDevices[Channel].Counter = BinaryPacket.Counter;
+#if 1
+							Config.LoRaDevices[Channel].Latitude = (1e-7)*BinaryPacket.Latitude.i;
+							Config.LoRaDevices[Channel].Longitude = (1e-7)*BinaryPacket.Longitude.i;
+#else
 							Config.LoRaDevices[Channel].Latitude = (double)BinaryPacket.Latitude.f;
 							Config.LoRaDevices[Channel].Longitude = (double)BinaryPacket.Longitude.f;
+#endif
 							Config.LoRaDevices[Channel].Altitude = BinaryPacket.Altitude;
 
-							sprintf(Data, "BINARY_%d,%u,%02d:%02d:%02d,%8.5f,%8.5f,%u",
-										  BinaryPacket.PayloadID,
+							if (BinaryPacket.Checksum == CRC16( &Message[1], sizeof(BinaryPacket) - 2 )) {
+								sprintf(Data, "%s,%u,%02d:%02d:%02d,%8.5f,%8.5f,%u",
+										  Payloads[0xf & BinaryPacket.PayloadID].Payload,
 										  BinaryPacket.Counter,
 										  (int)(Config.LoRaDevices[Channel].Seconds / 3600),
 										  (int)((Config.LoRaDevices[Channel].Seconds / 60) % 60),
@@ -1186,12 +1190,29 @@ int main(int argc, char **argv)
 										  Config.LoRaDevices[Channel].Latitude,
 										  Config.LoRaDevices[Channel].Longitude,
 										  Config.LoRaDevices[Channel].Altitude );
-							sprintf(Sentence, "$$%s*%04X\n", Data, CRC16(Data));
+								sprintf(Sentence, "$$%s*%04X\n", Data, CRC16( Data, strlen(Data) ) );
 							
-							// UploadTelemetryPacket(Sentence);
-							DoPositionCalcs(Channel);
-							Config.LoRaDevices[Channel].TelemetryCount++;
-							LogMessage("Ch %d:%s\n",Channel, Sentence);
+								UploadTelemetryPacket(Sentence);
+								DoPositionCalcs(Channel);
+								Config.LoRaDevices[Channel].TelemetryCount++;
+								if (LOG_TELEM & Config.LogLevel) {
+									if (LOG_RADIO & Config.LogLevel)
+                                                                        	sprintf(Sentence + strlen(Sentence),
+                                                                                        "Stats:%d,%1.1lf,%1.1lf,%d,%d,%d,%d\n",
+                                                                                                Channel,
+                                                                                                Config.LoRaDevices[Channel].Distance,
+                                                                                                Config.LoRaDevices[Channel].Elevation,
+                                                                                                Config.LoRaDevices[Channel].base_rssi,
+                                                                                                Config.LoRaDevices[Channel].packet_rssi,
+                                                                                                Config.LoRaDevices[Channel].packet_snr,
+                                                                                                Config.LoRaDevices[Channel].freq_offset);
+                                                                UpdatePayloadLOG(Sentence);
+                                                        }
+								LogMessage("Ch %d:%s",Channel, Sentence);
+								
+							} else {
+								Config.LoRaDevices[Channel].BadCRCCount++;
+							}
 						}
 						else if (Message[1] == 0x66)
 						{
