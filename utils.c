@@ -9,7 +9,7 @@
 #include "utils.h"
 
 // DBL_INT_ADD treats two unsigned ints a and b as one 64-bit integer and adds c to it
-#define DBL_INT_ADD( a,b,c ) {if ( a > 0xffffffff - ( c ) ) {++b; } a += c; }
+#define DBL_INT_ADD( a,b,c ) if ( a > 0xffffffff - ( c ) ) {++b; } a += c;
 #define ROTLEFT( a,b ) ( ( ( a ) << ( b ) ) | ( ( a ) >> ( 32 - ( b ) ) ) )
 #define ROTRIGHT( a,b ) ( ( ( a ) >> ( b ) ) | ( ( a ) << ( 32 - ( b ) ) ) )
 
@@ -33,7 +33,7 @@ uint32_t k[64] = {
 };
 
 
-void sha256_transform( SHA256_CTX *ctx, uint8_t data[] ) {
+void sha256_transform( SHA256_CTX *ctx, uint8_t *data ) {
 	uint32_t a,b,c,d,e,f,g,h,i,j,t1,t2,m[64];
 
 	for ( i = 0,j = 0; i < 16; ++i, j += 4 )
@@ -87,7 +87,7 @@ void sha256_init( SHA256_CTX *ctx ) {
 	ctx->state[7] = 0x5be0cd19;
 }
 
-void sha256_update( SHA256_CTX *ctx, uint8_t data[], uint32_t len ) {
+void sha256_update( SHA256_CTX *ctx, uint8_t *data, uint32_t len ) {
 	uint32_t i;
 
 	for ( i = 0; i < len; ++i ) {
@@ -101,7 +101,7 @@ void sha256_update( SHA256_CTX *ctx, uint8_t data[], uint32_t len ) {
 	}
 }
 
-void sha256_final( SHA256_CTX *ctx, uint8_t hash[] ) {
+void sha256_final( SHA256_CTX *ctx, uint8_t *hash ) {
 	uint32_t i;
 
 	i = ctx->datalen;
@@ -207,7 +207,7 @@ static char *decoding_table = NULL;
 static int mod_table[] = {0, 2, 1};
 
 
-void base64_encode( const unsigned char *data,
+void base64_encode( char *data,
 					size_t input_length,
 					size_t *output_length,
 					char *encoded_data ) {
@@ -221,9 +221,9 @@ void base64_encode( const unsigned char *data,
 
 	for ( i = 0, j = 0; i < input_length; )
 	{
-		uint32_t octet_a = i < input_length ? (unsigned char)data[i++] : 0;
-		uint32_t octet_b = i < input_length ? (unsigned char)data[i++] : 0;
-		uint32_t octet_c = i < input_length ? (unsigned char)data[i++] : 0;
+		uint32_t octet_a = i < input_length ? (uint8_t)data[i++] : 0;
+		uint32_t octet_b = i < input_length ? (uint8_t)data[i++] : 0;
+		uint32_t octet_c = i < input_length ? (uint8_t)data[i++] : 0;
 
 		uint32_t triple = ( octet_a << 0x10 ) + ( octet_b << 0x08 ) + octet_c;
 

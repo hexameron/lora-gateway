@@ -14,16 +14,11 @@
 #include <dirent.h>
 #include <math.h>
 #include <time.h>
-#include <pthread.h>
 #include <curl/curl.h>
 
-#include "base64.h"
-#include "habitat.h"
+#include "utils.h"
 #include "global.h"
-#include "sha256.h"
-
-
-extern void ChannelPrintf( int Channel, int row, int column, const char *format, ... );
+#include "hiperfifo.h"
 
 size_t habitat_write_data( void *buffer, size_t size, size_t nmemb, void *userp ) {
 	// LogMessage("%s\n", (char *)buffer);
@@ -42,12 +37,16 @@ void hash_to_hex( unsigned char *hash, char *line ) {
 	// LogMessage(line);
 }
 
-void UploadTelemetryPacket( int Channel ) {
+void UploadTelemetryPacket( char *Telemetry ) {
 	CURL *curl;
-	CURLcode res;
 
-	/* In windows, this will init the winsock stuff */
-	curl_global_init( CURL_GLOBAL_ALL );
+	if ( !Config.EnableHabitat ) {
+		return;
+	}
+
+	if ( strlen( Telemetry ) > 120 ) {
+		return;
+	}
 
 	/* get a curl handle */
 	curl = curl_easy_init();
@@ -57,9 +56,8 @@ void UploadTelemetryPacket( int Channel ) {
 		size_t base64_length;
 		SHA256_CTX ctx;
 		unsigned char hash[32];
-		char doc_id[100];
+		char doc_id[128];
 		char json[1000], now[32];
-		char PostFields[400], Sentence[512];
 		struct curl_slist *headers = NULL;
 		time_t rawtime;
 		struct tm *tm;
@@ -73,92 +71,49 @@ void UploadTelemetryPacket( int Channel ) {
 		curl_easy_setopt( curl, CURLOPT_WRITEFUNCTION, habitat_write_data );
 
 		// Set the timeout
-		curl_easy_setopt( curl, CURLOPT_TIMEOUT, 5 );
+		curl_easy_setopt( curl, CURLOPT_TIMEOUT, 10 );
 
 		// Avoid curl library bug that happens if above timeout occurs (sigh)
 		curl_easy_setopt( curl, CURLOPT_NOSIGNAL, 1 );
 
-		// Grab current telemetry string and append a linefeed
-		sprintf( Sentence, "%s\n", Config.LoRaDevices[Channel].Telemetry );
-
 		// Convert sentence to base64
-		base64_encode( Sentence, strlen( Sentence ), &base64_length, base64_data );
+		base64_encode( Telemetry, strlen( Telemetry ), &base64_length, base64_data );
 		base64_data[base64_length] = '\0';
 
 		// Take SHA256 hash of the base64 version and express as hex.  This will be the document ID
 		sha256_init( &ctx );
-		sha256_update( &ctx, base64_data, base64_length );
-		sha256_final( &ctx, hash );
+		sha256_update( &ctx, (uint8_t *)base64_data, base64_length );
+		sha256_final( &ctx, (uint8_t *)hash );
 		hash_to_hex( hash, doc_id );
 
 		// Create json with the base64 data in hex, the tracker callsign and the current timestamp
-		sprintf( json,
-				 "{\"data\": {\"_raw\": \"%s\"},\"receivers\": {\"%s\": {\"time_created\": \"%s\",\"time_uploaded\": \"%s\"}}}",
-				 base64_data,
-				 Config.Tracker,
-				 now,
-				 now );
+		snprintf( json, sizeof( json ),
+				  "{\"data\": {\"_raw\": \"%s\"},\"receivers\": {\"%s\": {\"time_created\": \"%s\",\"time_uploaded\": \"%s\"}}}",
+				  base64_data,
+				  Config.Tracker,
+				  now,
+				  now );
+		// printf("\njson:%s\n",json);
 
 		// Set the URL that is about to receive our PUT
-		sprintf( url, "http://habitat.habhub.org/habitat/_design/payload_telemetry/_update/add_listener/%s", doc_id );
+		snprintf( url, sizeof( url ), "http://habitat.habhub.org/habitat/_design/payload_telemetry/_update/add_listener/%s", doc_id );
 
+		// printf("\nurl :%s\n",url);
 		// Set the headers
 		headers = NULL;
 		headers = curl_slist_append( headers, "Accept: application/json" );
 		headers = curl_slist_append( headers, "Content-Type: application/json" );
 		headers = curl_slist_append( headers, "charsets: utf-8" );
 
-		// PUT to http://habitat.habhub.org/habitat/_design/payload_telemetry/_update/add_listener/<doc_id> with content-type application/json
+		// PUT to http://habitat.habhub.org/habitat/_design/payload_telemetry/_update/add_listener/<doc_id>
+		//	with content-type application/json
 		curl_easy_setopt( curl, CURLOPT_HTTPHEADER, headers );
 		curl_easy_setopt( curl, CURLOPT_URL, url );
 		curl_easy_setopt( curl, CURLOPT_CUSTOMREQUEST, "PUT" );
-		curl_easy_setopt( curl, CURLOPT_POSTFIELDS, json );
+		curl_easy_setopt( curl, CURLOPT_COPYPOSTFIELDS, json );
 
-		// LogMessage("%s\n", Config.LoRaDevices[Channel].Telemetry);
-
-		// Perform the request, res will get the return code
-		res = curl_easy_perform( curl );
-
-		// Check for errors
-		if ( res == CURLE_OK ) {
-			// LogMessage("OK\n");
-		} else
-		{
-			LogMessage( "curl_easy_perform() failed: %s\n", curl_easy_strerror( res ) );
-		}
-
-		// always cleanup
-		curl_slist_free_all( headers );
-		curl_easy_cleanup( curl );
-		// free(base64_data);
+		// cleanup later
+		curlQueue( curl );
 	}
 
-	curl_global_cleanup();
-}
-
-
-void *HabitatLoop( void *some_void_ptr ) {
-	while ( 1 )
-	{
-		if ( Config.EnableHabitat ) {
-			int Channel;
-
-			for ( Channel = 0; Channel <= 1; Channel++ )
-			{
-				if ( Config.LoRaDevices[Channel].Counter != Config.LoRaDevices[Channel].LastCounter ) {
-					ChannelPrintf( Channel, 5, 1, "Habitat" );
-
-					UploadTelemetryPacket( Channel );
-
-					Config.LoRaDevices[Channel].LastCounter = Config.LoRaDevices[Channel].Counter;
-
-					delay( 100 );
-
-					ChannelPrintf( Channel, 5, 1, "       " );
-				}
-			}
-		}
-
-		delay( 100 );
-	}
 }

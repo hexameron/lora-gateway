@@ -436,30 +436,6 @@ size_t write_data( void *buffer, size_t size, size_t nmemb, void *userp ) {
 	return size * nmemb;
 }
 
-void UploadTelemetryPacket( char *Telemetry ) {
-	CURL *curl;
-	char PostTelemetry[200];
-
-	if ( Config.EnableHabitat && ( strlen( Telemetry ) < 120 ) ) {
-		/* get a curl handle */
-		curl = curl_easy_init();
-		if ( curl ) {
-			// So that the response to the curl POST doesn;'t mess up my finely crafted display!
-			curl_easy_setopt( curl, CURLOPT_WRITEFUNCTION, write_data );
-
-			// Set the URL that is about to receive our POST
-			curl_easy_setopt( curl, CURLOPT_URL, "http://habitat.habhub.org/transition/payload_telemetry" );
-
-			// Now specify the POST data
-			snprintf( PostTelemetry, 199, "callsign=%s&string=%s&string_type=ascii&metadata={}", Config.Tracker, Telemetry );
-			curl_easy_setopt( curl, CURLOPT_COPYPOSTFIELDS, PostTelemetry );
-
-			curlQueue( curl );
-			/* cleanup handle later */
-		}
-	}
-}
-
 void UploadImagePacket( char *EncodedCallsign, char *EncodedEncoding, char *EncodedData ) {
 	CURL *curl;
 	char PostImage[1000];

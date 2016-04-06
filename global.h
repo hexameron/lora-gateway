@@ -47,12 +47,6 @@ struct TConfig
 	double myLat, myLon, myAlt;
 };
 
-struct TPayload
-{
-	int InUse;
-	char Payload[32];
-};
-
 extern struct TConfig Config;
 
 #pragma pack(1)
@@ -66,4 +60,11 @@ struct TBinaryPacket
 	union { float f; int32_t i; } Longitude;
 	uint16_t Altitude;
 	uint16_t Checksum;
+};
+
+#pragma pack(8)
+struct TPayload
+{
+        int InUse;
+        char Payload[32];
 };
