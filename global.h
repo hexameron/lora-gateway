@@ -14,11 +14,11 @@ struct TLoRaDevice
 	double Reference;
 	int SpreadingFactor;
 	int LowDataRateOptimize;
-	
+
 	WINDOW *Window;
-	
+
 	unsigned int TelemetryCount, SSDVCount, BadCRCCount, UnknownCount, SSDVMissing;
-	
+
 	char Payload[16], Time[12];
 	unsigned int Counter;
 	unsigned long Seconds;
@@ -47,4 +47,23 @@ struct TConfig
 	double myLat, myLon, myAlt;
 };
 
+struct TPayload
+{
+	int InUse;
+	char Payload[32];
+};
+
 extern struct TConfig Config;
+
+#pragma pack(1)
+struct TBinaryPacket
+{
+	uint8_t PayloadType;
+	uint8_t PayloadID;
+	uint16_t Counter;
+	uint16_t BiSeconds;
+	union { float f; int32_t i; } Latitude;
+	union { float f; int32_t i; } Longitude;
+	uint16_t Altitude;
+	uint16_t Checksum;
+};

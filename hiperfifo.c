@@ -33,121 +33,120 @@
 
 #include "hiperfifo.h"
 
-/* Global information, common to all connections */ 
+/* Global information, common to all connections */
 
-  CURLM *multi;
-  int running;
-  int pending;
+CURLM *multi;
+int running;
+int pending;
 
-void curlInit()
-{
-	curl_global_init(CURL_GLOBAL_ALL);
+void curlInit() {
+	curl_global_init( CURL_GLOBAL_ALL );
 	multi = curl_multi_init();
 	running = 0;
 	pending = 0;
 }
 
 /* Die if we get a bad CURLMcode somewhere */
-void mcode_or_die(const char *where, CURLMcode code)
-{
-    const char *s;
-    CURLMcode rc = code;
+void mcode_or_die( const char *where, CURLMcode code ) {
+	const char *s;
+	CURLMcode rc = code;
 
-    if(CURLM_OK == code)
-        return;
+	if ( CURLM_OK == code ) {
+		return;
+	}
 
-    if (CURLM_CALL_MULTI_PERFORM == code)
-        rc = curl_multi_perform(multi, &running);
-			
-    switch (rc) {
-      case     CURLM_CALL_MULTI_PERFORM:
-      case     CURLM_OK:                 return;
+	if ( CURLM_CALL_MULTI_PERFORM == code ) {
+		rc = curl_multi_perform( multi, &running );
+	}
 
-      case     CURLM_BAD_SOCKET:         s="CURLM_BAD_SOCKET";         break;
-      case     CURLM_BAD_HANDLE:         s="CURLM_BAD_HANDLE";         break;
-      case     CURLM_BAD_EASY_HANDLE:    s="CURLM_BAD_EASY_HANDLE";    break;
-      case     CURLM_OUT_OF_MEMORY:      s="CURLM_OUT_OF_MEMORY";      break;
-      case     CURLM_INTERNAL_ERROR:     s="CURLM_INTERNAL_ERROR";     break;
-      case     CURLM_UNKNOWN_OPTION:     s="CURLM_UNKNOWN_OPTION";     break;
+	switch ( rc ) {
+	case     CURLM_CALL_MULTI_PERFORM:
+	case     CURLM_OK:                 return;
+
+	case     CURLM_BAD_SOCKET:         s = "CURLM_BAD_SOCKET";         break;
+	case     CURLM_BAD_HANDLE:         s = "CURLM_BAD_HANDLE";         break;
+	case     CURLM_BAD_EASY_HANDLE:    s = "CURLM_BAD_EASY_HANDLE";    break;
+	case     CURLM_OUT_OF_MEMORY:      s = "CURLM_OUT_OF_MEMORY";      break;
+	case     CURLM_INTERNAL_ERROR:     s = "CURLM_INTERNAL_ERROR";     break;
+	case     CURLM_UNKNOWN_OPTION:     s = "CURLM_UNKNOWN_OPTION";     break;
 
 //    case     CURLM_ADDED_ALREADY:
-      case     CURLM_LAST:
-      default:				printf("\n    Unexpected curl error:  %s  \n",where);
-					return;
-    }
+	case     CURLM_LAST:
+	default:              printf( "\n    Unexpected curl error:  %s  \n",where );
+		return;
+	}
 
-    printf("\n\n Curl fatal error:%s,%s\n",where,s);
-    exit(code);
+	printf( "\n\n Curl fatal error:%s,%s\n",where,s );
+	exit( code );
 }
 
 /* Check for completed transfers, and remove their easy handles */
-void check_multi_info()
-{
-  CURLMsg *msg;
-  int msgs_left;
-  CURL *easy;
-  CURLcode res;
+void check_multi_info() {
+	CURLMsg *msg;
+	int msgs_left;
+	CURL *easy;
+	CURLcode res;
 
-  while((msg = curl_multi_info_read(multi, &msgs_left))) {
-    if(msg->msg == CURLMSG_DONE) {
-      easy = msg->easy_handle;
-      res = msg->data.result;
-      if (res != CURLE_OK)
-		printf("\n Error in curl_multi_info_read: %d \n", res);
-      curl_multi_remove_handle(multi, easy);
-      curl_easy_cleanup(easy);
-    }
-  }
+	while ( ( msg = curl_multi_info_read( multi, &msgs_left ) ) ) {
+		if ( msg->msg == CURLMSG_DONE ) {
+			easy = msg->easy_handle;
+			res = msg->data.result;
+			if ( res != CURLE_OK ) {
+				printf( "\n Error in curl_multi_info_read: %d \n", res );
+			}
+			curl_multi_remove_handle( multi, easy );
+			curl_easy_cleanup( easy );
+		}
+	}
 }
 
 
 /* Add a new easy handle to the global curl_multi */
-void curlQueue(CURL *easy_handle )
-{
-  CURLMcode rc;
-
-  if(!easy_handle)
-	return;
-
-  /* drop messages if the queue is blocked  - but data has already been overwritten */
-  if(running >= 16) {
-	// first check if any have recently finished
-	rc = curl_multi_perform(multi, &running);
-        mcode_or_die("curlQueue: curl_multi_perform", rc);
-  }
-  if(running >= 16) {
-	// drop if still blocked
-	curl_easy_cleanup(easy_handle);
-	return;
-  }
-
-  rc = curl_multi_add_handle(multi, easy_handle);
-  mcode_or_die("curlQueue: curl_multi_add_handle", rc);
-  pending++;
-}
-
-void curlPush()
-{
+void curlQueue( CURL *easy_handle ) {
 	CURLMcode rc;
 
-	if (!pending)
+	if ( !easy_handle ) {
 		return;
+	}
+
+	/* drop messages if the queue is blocked  - but data has already been overwritten */
+	if ( running >= 16 ) {
+		// first check if any have recently finished
+		rc = curl_multi_perform( multi, &running );
+		mcode_or_die( "curlQueue: curl_multi_perform", rc );
+	}
+	if ( running >= 16 ) {
+		// drop if still blocked
+		curl_easy_cleanup( easy_handle );
+		return;
+	}
+
+	rc = curl_multi_add_handle( multi, easy_handle );
+	mcode_or_die( "curlQueue: curl_multi_add_handle", rc );
+	pending++;
+}
+
+void curlPush() {
+	CURLMcode rc;
+
+	if ( !pending ) {
+		return;
+	}
 
 	// clear completed handles
 	check_multi_info();
 
 	// start new handles
-	rc = curl_multi_perform(multi, &running);
-	mcode_or_die("curlPush: curl_multi_perform", rc);
+	rc = curl_multi_perform( multi, &running );
+	mcode_or_die( "curlPush: curl_multi_perform", rc );
 	pending = 0;
 }
 
 
 /* this, of course, won't get called since the only way to stop this program is
-	     via ctrl-C, but it is here to show how cleanup /would/ be done. */
-void curlClean()
-{
-  check_multi_info();
-  curl_multi_cleanup(multi);
-  curl_global_cleanup();
+         via ctrl-C, but it is here to show how cleanup /would/ be done. */
+void curlClean() {
+	check_multi_info();
+	curl_multi_cleanup( multi );
+	curl_global_cleanup();
 }
