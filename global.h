@@ -52,14 +52,16 @@ extern struct TConfig Config;
 #pragma pack(1)
 struct TBinaryPacket
 {
-	uint8_t PayloadType;
-	uint8_t PayloadID;
+	uint8_t  PayloadType;
+	uint8_t  PayloadID;
 	uint16_t Counter;
 	uint16_t BiSeconds;
 	union { float f; int32_t i; } Latitude;
 	union { float f; int32_t i; } Longitude;
 	uint16_t Altitude;
-	uint16_t Checksum;
+	uint8_t  Fix;         // optional
+	int8_t   Temperature; // optional
+	uint16_t Checksum;    // Always last, not always present
 };
 
 #pragma pack(8)

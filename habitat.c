@@ -51,12 +51,13 @@ void UploadTelemetryPacket( char *Telemetry ) {
 	/* get a curl handle */
 	curl = curl_easy_init();
 	if ( curl ) {
+#if 0
 		char url[200];
 		char base64_data[1000];
 		size_t base64_length;
 		SHA256_CTX ctx;
 		unsigned char hash[32];
-		char doc_id[128];
+		char doc_id[68];
 		char json[1000], now[32];
 		struct curl_slist *headers = NULL;
 		time_t rawtime;
@@ -71,7 +72,7 @@ void UploadTelemetryPacket( char *Telemetry ) {
 		curl_easy_setopt( curl, CURLOPT_WRITEFUNCTION, habitat_write_data );
 
 		// Set the timeout
-		curl_easy_setopt( curl, CURLOPT_TIMEOUT, 10 );
+		curl_easy_setopt( curl, CURLOPT_TIMEOUT, 20 );
 
 		// Avoid curl library bug that happens if above timeout occurs (sigh)
 		curl_easy_setopt( curl, CURLOPT_NOSIGNAL, 1 );
@@ -111,7 +112,16 @@ void UploadTelemetryPacket( char *Telemetry ) {
 		curl_easy_setopt( curl, CURLOPT_URL, url );
 		curl_easy_setopt( curl, CURLOPT_CUSTOMREQUEST, "PUT" );
 		curl_easy_setopt( curl, CURLOPT_COPYPOSTFIELDS, json );
+#else
+		char post[256];
 
+		curl_easy_setopt( curl, CURLOPT_TIMEOUT, 20 );
+		curl_easy_setopt( curl, CURLOPT_NOSIGNAL, 1 );
+		curl_easy_setopt( curl, CURLOPT_WRITEFUNCTION, habitat_write_data );
+		curl_easy_setopt( curl, CURLOPT_URL, "http://habitat.habhub.org/transition/payload_telemetry" );
+		snprintf( post, sizeof(post), "callsign=%s&string=%s&string_type=ascii&metadata={}", Config.Tracker, Telemetry );
+		curl_easy_setopt( curl, CURLOPT_COPYPOSTFIELDS, post );
+#endif
 		// cleanup later
 		curlQueue( curl );
 	}

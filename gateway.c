@@ -1046,7 +1046,7 @@ int main( int argc, char **argv ) {
 							Config.LoRaDevices[Channel].Altitude = BinaryPacket.Altitude;
 
 							if ( BinaryPacket.Checksum == CRC16( &Message[1], sizeof( BinaryPacket ) - 2 ) ) {
-								sprintf( Data, "%s,%u,%02d:%02d:%02d,%8.5f,%8.5f,%u",
+								sprintf( Data, "%s,%u,%02d:%02d:%02d,%8.5f,%8.5f,%u,%u,%d",
 										 Payloads[0xf & BinaryPacket.PayloadID].Payload,
 										 BinaryPacket.Counter,
 										 (int)( Config.LoRaDevices[Channel].Seconds / 3600 ),
@@ -1054,7 +1054,9 @@ int main( int argc, char **argv ) {
 										 (int)( Config.LoRaDevices[Channel].Seconds % 60 ),
 										 Config.LoRaDevices[Channel].Latitude,
 										 Config.LoRaDevices[Channel].Longitude,
-										 Config.LoRaDevices[Channel].Altitude );
+										 Config.LoRaDevices[Channel].Altitude,
+										 BinaryPacket.Fix,
+										 BinaryPacket.Temperature );
 								sprintf( Sentence, "$$%s*%04X\n", Data, CRC16( Data, strlen( Data ) ) );
 
 								UploadTelemetryPacket( Sentence );
