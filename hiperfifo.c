@@ -80,6 +80,23 @@ void mcode_or_die( const char *where, CURLMcode code ) {
 	exit( code );
 }
 
+static time_t lastretry = 0;
+void multi_retry( CURLcode res, CURL *easy ) {
+	time_t timenow;
+
+	timenow = time( NULL ) / 32;	// Limit at two retries per minute, but log the timeslot that failed
+	printf( "\n\r Error %d in curl_multi_info_read at %ld      ", res, timenow & 0xff );
+
+	if ( ((res == CURLE_OPERATION_TIMEDOUT) || (res == CURLE_COULDNT_RESOLVE_HOST)) 
+							&& (timenow != lastretry) ) {
+		curlQueue( easy );
+		lastretry = timenow;
+	} else {
+		curl_easy_cleanup( easy );
+		// may have been uploaded despite timeout message
+	}
+}
+
 /* Check for completed transfers, and remove their easy handles */
 void check_multi_info() {
 	CURLMsg *msg;
@@ -91,11 +108,13 @@ void check_multi_info() {
 		if ( msg->msg == CURLMSG_DONE ) {
 			easy = msg->easy_handle;
 			res = msg->data.result;
-			if ( res != CURLE_OK ) {
-				printf( "\n Error in curl_multi_info_read: %d \n", res );
-			}
 			curl_multi_remove_handle( multi, easy );
-			curl_easy_cleanup( easy );
+
+			if ( res == CURLE_OK ) {
+				curl_easy_cleanup( easy );
+			} else {
+				multi_retry( res, easy );
+			}
 		}
 	}
 }
@@ -109,13 +128,13 @@ void curlQueue( CURL *easy_handle ) {
 		return;
 	}
 
-	/* drop messages if the queue is blocked  - but data has already been overwritten */
+	/* drop messages if the queue is blocked */
 	if ( running >= 16 ) {
 		// first check if any have recently finished
 		rc = curl_multi_perform( multi, &running );
 		mcode_or_die( "curlQueue: curl_multi_perform", rc );
 	}
-	if ( running >= 16 ) {
+	if ( running >= 20 ) {
 		// drop if still blocked
 		curl_easy_cleanup( easy_handle );
 		return;

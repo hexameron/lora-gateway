@@ -51,7 +51,7 @@ void UploadTelemetryPacket( char *Telemetry ) {
 	/* get a curl handle */
 	curl = curl_easy_init();
 	if ( curl ) {
-#if 0
+#if 1
 		char url[200];
 		char base64_data[1000];
 		size_t base64_length;
@@ -72,7 +72,7 @@ void UploadTelemetryPacket( char *Telemetry ) {
 		curl_easy_setopt( curl, CURLOPT_WRITEFUNCTION, habitat_write_data );
 
 		// Set the timeout
-		curl_easy_setopt( curl, CURLOPT_TIMEOUT, 20 );
+		curl_easy_setopt( curl, CURLOPT_TIMEOUT, 30 );
 
 		// Avoid curl library bug that happens if above timeout occurs (sigh)
 		curl_easy_setopt( curl, CURLOPT_NOSIGNAL, 1 );
@@ -115,7 +115,7 @@ void UploadTelemetryPacket( char *Telemetry ) {
 #else
 		char post[256];
 
-		curl_easy_setopt( curl, CURLOPT_TIMEOUT, 20 );
+		curl_easy_setopt( curl, CURLOPT_TIMEOUT, 30 );
 		curl_easy_setopt( curl, CURLOPT_NOSIGNAL, 1 );
 		curl_easy_setopt( curl, CURLOPT_WRITEFUNCTION, habitat_write_data );
 		curl_easy_setopt( curl, CURLOPT_URL, "http://habitat.habhub.org/transition/payload_telemetry" );

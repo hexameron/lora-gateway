@@ -1132,13 +1132,13 @@ int main( int argc, char **argv ) {
 
 					LoopCount[Channel] = 0;
 					ChannelPrintf( Channel,  2, 1, "Freq. Offset = %4d   ", Config.LoRaDevices[Channel].freq_offset );
-					if ( Config.LoRaDevices[Channel].LastPacketAt > 0 ) {
-						ChannelPrintf( Channel, 5, 1, "%us since last packet   ", (unsigned int)( time( NULL ) - Config.LoRaDevices[Channel].LastPacketAt ) );
-					}
+					ChannelPrintf( Channel,  5, 1, "%us since last packet   ", (unsigned int)( time( NULL ) 
+												- Config.LoRaDevices[Channel].LastPacketAt ) );
 					ShowPacketCounts( Channel ); // lines 6,7,8
 					ChannelPrintf( Channel,  9, 1, "Packet   SNR = %4d   ", Config.LoRaDevices[Channel].packet_snr );
 					ChannelPrintf( Channel, 10, 1, "Packet  RSSI = %4d   ", Config.LoRaDevices[Channel].packet_rssi );
-					ChannelPrintf( Channel, 11, 1, "Current RSSI = %4d   ", readRegister( Channel, REG_CURRENT_RSSI ) - RSSI_OFFSET );
+					ChannelPrintf( Channel, 11, 1, "Current RSSI = %4d   ", readRegister( Channel, REG_CURRENT_RSSI )
+															- RSSI_OFFSET );
 					curlPush();
 				}
 			}
