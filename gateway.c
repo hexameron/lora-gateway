@@ -801,26 +801,10 @@ int ProcessLine( int Channel, char *Line ) {
 }
 
 void DoPositionCalcs( Channel ) {
-#if 0
-	unsigned long Now;
-	struct tm tm;
-	float Climb, Period;
-
-	strptime( Config.LoRaDevices[Channel].Time, "%H:%M:%S", &tm );
-	Now = tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec;
-
-	if ( ( Config.LoRaDevices[Channel].LastPositionAt > 0 ) && ( Now > Config.LoRaDevices[Channel].LastPositionAt ) ) {
-		Climb = (float)Config.LoRaDevices[Channel].Altitude - (float)Config.LoRaDevices[Channel].PreviousAltitude;
-		Period = (float)Now - (float)Config.LoRaDevices[Channel].LastPositionAt;
-		Config.LoRaDevices[Channel].AscentRate = Climb / Period;
-	} else
-	{
-		Config.LoRaDevices[Channel].AscentRate = 0;
+	if (Config.LoRaDevices[Channel].Latitude > 1e6) {
+		Config.LoRaDevices[Channel].Latitude *= 1.0e-7;
+		Config.LoRaDevices[Channel].Longitude *= 1.0e-7;
 	}
-
-	Config.LoRaDevices[Channel].PreviousAltitude = Config.LoRaDevices[Channel].Altitude;
-	Config.LoRaDevices[Channel].LastPositionAt = Now;
-#endif
 	ChannelPrintf( Channel, 4, 1, "%8.5lf, %8.5lf, %05u   ",
 				   Config.LoRaDevices[Channel].Latitude,
 				   Config.LoRaDevices[Channel].Longitude,
@@ -972,6 +956,7 @@ int main( int argc, char **argv ) {
 
 	for ( Channel = 0; Channel <= 1; Channel++ ) {
 		setupRFM98( Channel );
+		Config.LoRaDevices[Channel].LastPacketAt = time( NULL );
 		LoopCount[Channel] = 0;
 		if ( Config.LoRaDevices[Channel].InUse ) {
 			ShowPacketCounts( Channel );
@@ -1127,13 +1112,24 @@ int main( int argc, char **argv ) {
 
 				// redraw screen every second
 				if ( ++LoopCount[Channel] > 50 ) {
+					uint32_t interval;
+					char *timescale = "s";
+
 					// Check for missed interrupt
 					getPacket( Channel );
 
 					LoopCount[Channel] = 0;
+					interval = time( NULL ) - Config.LoRaDevices[Channel].LastPacketAt; 
+					if ( interval > 99 * 60 ) {
+						interval /= 60 * 60;
+						timescale = "h";
+					} else if ( interval > 99 ) {
+						interval /= 60;
+						timescale = "m";
+					}
+
 					ChannelPrintf( Channel,  2, 1, "Freq. Offset = %4d   ", Config.LoRaDevices[Channel].freq_offset );
-					ChannelPrintf( Channel,  5, 1, "%us since last packet   ", (unsigned int)( time( NULL ) 
-												- Config.LoRaDevices[Channel].LastPacketAt ) );
+					ChannelPrintf( Channel,  5, 1, "%u%s since last packet   ", interval, timescale );
 					ShowPacketCounts( Channel ); // lines 6,7,8
 					ChannelPrintf( Channel,  9, 1, "Packet   SNR = %4d   ", Config.LoRaDevices[Channel].packet_snr );
 					ChannelPrintf( Channel, 10, 1, "Packet  RSSI = %4d   ", Config.LoRaDevices[Channel].packet_rssi );
