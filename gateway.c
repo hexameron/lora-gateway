@@ -912,7 +912,7 @@ void gpioInterrupt1( void ) {
 
 int main( int argc, char **argv ) {
 	char *Message;
-	int Channel, Bytes;
+	uint8_t  Channel, Bytes;
 	uint32_t CallsignCode, LoopCount[2];
 	WINDOW * mainwin;
 
@@ -1066,10 +1066,9 @@ int main( int argc, char **argv ) {
 							} else {
 								Config.LoRaDevices[Channel].BadCRCCount++;
 							}
-						} else if ( Message[1] == 0x66 )     {
+					} else if ( (0x66 == Message[1]) && (Bytes > 200) )     {
 							// SSDV packet
 							char Callsign[7], *EncodedCallsign, *EncodedEncoding, *EncodedData, HexString[513];
-							Message[0] = 0x55;
 
 							CallsignCode = Message[2]; CallsignCode <<= 8;
 							CallsignCode |= Message[3]; CallsignCode <<= 8;
@@ -1090,7 +1089,9 @@ int main( int argc, char **argv ) {
 								EncodedCallsign = url_encode( Callsign );
 								EncodedEncoding = url_encode( "hex" );
 
+								Message[0] = 0x55;
 								ConvertStringToHex( HexString, Message, 256 );
+								Message[0] = 0x00;
 								EncodedData = url_encode( HexString );
 
 								UploadImagePacket( EncodedCallsign, EncodedEncoding, EncodedData );
