@@ -84,8 +84,7 @@ static time_t lastretry = 0;
 void multi_retry( CURLcode res, CURL *easy ) {
 	time_t timenow;
 
-	timenow = time( NULL ) / 32;	// Limit at two retries per minute, but log the timeslot that failed
-	printf( "\n\r Error %d in curl_multi_info_read at %ld      ", res, timenow & 0xff );
+	timenow = time( NULL ) / 4;	// Limit to one retry every four seconds.
 
 	if ( ((res == CURLE_OPERATION_TIMEDOUT) || (res == CURLE_COULDNT_RESOLVE_HOST)) 
 							&& (timenow != lastretry) ) {
@@ -93,7 +92,6 @@ void multi_retry( CURLcode res, CURL *easy ) {
 		lastretry = timenow;
 	} else {
 		curl_easy_cleanup( easy );
-		// may have been uploaded despite timeout message
 	}
 }
 
@@ -149,7 +147,7 @@ void curlPush() {
 	CURLMcode rc;
 
 	if ( !pending ) {
-		return;
+//			return;
 	}
 
 	// clear completed handles

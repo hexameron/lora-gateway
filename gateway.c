@@ -108,7 +108,7 @@ uint8_t currentMode = 0x81;
 #define RSSI_OFFSET 164
 //#define RSSI_OFFSET 157
 
-const char *Modes[5] = {"slow", "SSDV", "repeater", "turbo", "TurboX"};
+const char *Modes[5] = {"Slow", "SSDV", "Repeat", "Turbo", "TurboX"};
 
 struct TConfig Config;
 struct TPayload Payloads[16];
@@ -1066,7 +1066,7 @@ int main( int argc, char **argv ) {
 							} else {
 								Config.LoRaDevices[Channel].BadCRCCount++;
 							}
-					} else if ( (0x66 == Message[1]) && (Bytes > 200) )     {
+						} else if ( (0x66 <= Message[1]) && (0x69 >= Message[1]) && (Bytes > 200) ) {
 							// SSDV packet
 							char Callsign[7], *EncodedCallsign, *EncodedEncoding, *EncodedData, HexString[513];
 

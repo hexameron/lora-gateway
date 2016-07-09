@@ -44,7 +44,7 @@ void UploadTelemetryPacket( char *Telemetry ) {
 		return;
 	}
 
-	if ( strlen( Telemetry ) > 120 ) {
+	if ( strlen( Telemetry ) > 160 ) {
 		return;
 	}
 
@@ -72,7 +72,7 @@ void UploadTelemetryPacket( char *Telemetry ) {
 		curl_easy_setopt( curl, CURLOPT_WRITEFUNCTION, habitat_write_data );
 
 		// Set the timeout
-		curl_easy_setopt( curl, CURLOPT_TIMEOUT, 30 );
+		curl_easy_setopt( curl, CURLOPT_TIMEOUT, 20 );
 
 		// Avoid curl library bug that happens if above timeout occurs (sigh)
 		curl_easy_setopt( curl, CURLOPT_NOSIGNAL, 1 );
