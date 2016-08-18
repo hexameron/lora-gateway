@@ -59,7 +59,6 @@ void UploadTelemetryPacket( char *Telemetry ) {
 		unsigned char hash[32];
 		char doc_id[68];
 		char json[1000], now[32];
-		struct curl_slist *headers = NULL;
 		time_t rawtime;
 		struct tm *tm;
 
@@ -76,6 +75,9 @@ void UploadTelemetryPacket( char *Telemetry ) {
 
 		// Avoid curl library bug that happens if above timeout occurs (sigh)
 		curl_easy_setopt( curl, CURLOPT_NOSIGNAL, 1 );
+
+		// Fail on http error 40x
+		curl_easy_setopt( curl, CURLOPT_FAILONERROR, 1 );
 
 		// Convert sentence to base64
 		base64_encode( Telemetry, strlen( Telemetry ), &base64_length, base64_data );
@@ -99,16 +101,9 @@ void UploadTelemetryPacket( char *Telemetry ) {
 		// Set the URL that is about to receive our PUT
 		snprintf( url, sizeof( url ), "http://habitat.habhub.org/habitat/_design/payload_telemetry/_update/add_listener/%s", doc_id );
 
-		// printf("\nurl :%s\n",url);
-		// Set the headers
-		headers = NULL;
-		headers = curl_slist_append( headers, "Accept: application/json" );
-		headers = curl_slist_append( headers, "Content-Type: application/json" );
-		headers = curl_slist_append( headers, "charsets: utf-8" );
-
 		// PUT to http://habitat.habhub.org/habitat/_design/payload_telemetry/_update/add_listener/<doc_id>
 		//	with content-type application/json
-		curl_easy_setopt( curl, CURLOPT_HTTPHEADER, headers );
+		curl_easy_setopt( curl, CURLOPT_HTTPHEADER, slist_headers );
 		curl_easy_setopt( curl, CURLOPT_URL, url );
 		curl_easy_setopt( curl, CURLOPT_CUSTOMREQUEST, "PUT" );
 		curl_easy_setopt( curl, CURLOPT_COPYPOSTFIELDS, json );

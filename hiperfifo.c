@@ -44,6 +44,11 @@ void curlInit() {
 	multi = curl_multi_init();
 	running = 0;
 	pending = 0;
+
+	slist_headers = NULL;
+	slist_headers = curl_slist_append( slist_headers, "Accept: application/json" );
+	slist_headers = curl_slist_append( slist_headers, "Content-Type: application/json" );
+	slist_headers = curl_slist_append( slist_headers, "charsets: utf-8" );
 }
 
 /* Die if we get a bad CURLMcode somewhere */
@@ -83,14 +88,26 @@ void mcode_or_die( const char *where, CURLMcode code ) {
 static time_t lastretry = 0;
 void multi_retry( CURLcode res, CURL *easy ) {
 	time_t timenow;
+	long responseCode;
 
-	timenow = time( NULL ) / 4;	// Limit to one retry every four seconds.
+	/* check for couchDB merge conflict */
+	if (res == CURLE_HTTP_RETURNED_ERROR) {
+		curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &responseCode);
+		if (responseCode == 409) {
+			/* resubmit with no limits */
+			curlQueue( easy );
+			return;
+		}
+	}
 
-	if ( ((res == CURLE_OPERATION_TIMEDOUT) || (res == CURLE_COULDNT_RESOLVE_HOST)) 
-							&& (timenow != lastretry) ) {
+	timenow = time( NULL );
+	if ( ((res == CURLE_OPERATION_TIMEDOUT) || (res == CURLE_COULDNT_RESOLVE_HOST))
+								&& (timenow != lastretry)) {
+		/* resubmit with rate limits */
 		curlQueue( easy );
 		lastretry = timenow;
 	} else {
+		/* fail and remove handle */
 		curl_easy_cleanup( easy );
 	}
 }
@@ -165,5 +182,6 @@ void curlPush() {
 void curlClean() {
 	check_multi_info();
 	curl_multi_cleanup( multi );
+	curl_slist_free_all(slist_headers);
 	curl_global_cleanup();
 }
