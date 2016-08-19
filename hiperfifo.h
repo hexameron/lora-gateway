@@ -1,5 +1,6 @@
 #include <curl/curl.h>
 
+volatile int	  curl_terminate;
 struct curl_slist *slist_headers;
 
 void curlInit();

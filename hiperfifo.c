@@ -30,6 +30,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <signal.h>
 
 #include "hiperfifo.h"
 
@@ -39,7 +40,17 @@ CURLM *multi;
 int running;
 int pending;
 
+/* Request clean exit on first Ctrl-C, or force exit on multiple retries */
+static void signal_handler( int sig ) {
+	if ( curl_terminate++ > 2)
+		exit(0);
+}
+
 void curlInit() {
+	curl_terminate = 0;
+	signal( SIGINT, signal_handler );
+	signal( SIGTERM, signal_handler );
+
 	curl_global_init( CURL_GLOBAL_ALL );
 	multi = curl_multi_init();
 	running = 0;
@@ -176,9 +187,6 @@ void curlPush() {
 	pending = 0;
 }
 
-
-/* this, of course, won't get called since the only way to stop this program is
-         via ctrl-C, but it is here to show how cleanup /would/ be done. */
 void curlClean() {
 	check_multi_info();
 	curl_multi_cleanup( multi );

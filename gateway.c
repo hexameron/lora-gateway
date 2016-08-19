@@ -968,7 +968,7 @@ int main( int argc, char **argv ) {
 		}
 	}
 
-	while ( 1 )
+	while ( !curl_terminate )
 	{
 		for ( Channel = 0; Channel <= 1; Channel++ )
 		{
