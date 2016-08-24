@@ -6,8 +6,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
 #include <errno.h>
 #include <stdint.h>
 #include <time.h>
@@ -436,28 +434,58 @@ size_t write_data( void *buffer, size_t size, size_t nmemb, void *userp ) {
 	return size * nmemb;
 }
 
-void UploadImagePacket( char *EncodedCallsign, char *EncodedEncoding, char *EncodedData ) {
+unsigned int queued_images = 0;
+char base64_ssdv[512*8];
+
+void UploadMultiImages() {
 	CURL *curl;
-	char PostImage[1000];
+	char single[1000];  // 256 * base64 + headers
+	char json[8000];  // 8 * single
+	int  PacketIndex;
+	char now[32];
+	time_t rawtime;
+	struct tm *tm;
 
-	/* get a curl handle */
+	if ( !queued_images )
+		return;
 	curl = curl_easy_init();
-	if ( curl ) {
-		// So that the response to the curl POST doesn;'t mess up my finely crafted display!
-		curl_easy_setopt( curl, CURLOPT_WRITEFUNCTION, write_data );
-
-		/* Set the URL that is about to receive our POST. This URL can
-		   just as well be a https:// URL if that is what should receive the
-		   data. */
-		curl_easy_setopt( curl, CURLOPT_URL, "http://www.sanslogic.co.uk/ssdv/data.php" );
-
-		/* Now specify the POST data */
-		sprintf( PostImage, "callsign=%s&encoding=%s&packet=%s", Config.Tracker, EncodedEncoding, EncodedData );
-		curl_easy_setopt( curl, CURLOPT_COPYPOSTFIELDS, PostImage );
-
-		curlQueue( curl );
-		/* cleanup handle later*/
+	if ( !curl) {
+		queued_images = 0;
+		return;
 	}
+
+	time(&rawtime);
+	tm = gmtime(&rawtime);
+	strftime(now, sizeof(now), "%Y-%0m-%0dT%H:%M:%SZ", tm);
+
+	strcpy(json, "{\"type\": \"packets\",\"packets\":[");
+	for (PacketIndex = 0; PacketIndex < queued_images; PacketIndex++) {
+		snprintf(single, sizeof(single),
+			"{\"type\": \"packet\", \"packet\": \"%s\", \"encoding\": \"base64\", \"received\": \"%s\", \"receiver\": \"%s\"}%s",
+				&base64_ssdv[PacketIndex*512], now, Config.Tracker, (queued_images - PacketIndex == 1) ? "" : ",");
+		strcat(json, single);
+	}
+	strcat(json, "]}");
+
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20);
+	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, slist_headers); 
+	curl_easy_setopt(curl, CURLOPT_URL, "http://ssdv.habhub.org/api/v0/packets");  
+	curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "POST");
+	curl_easy_setopt(curl, CURLOPT_COPYPOSTFIELDS, json);
+
+	curlQueue( curl );
+	queued_images = 0;
+}
+
+void UploadImagePacket( char *packet ) {
+	size_t base64_length;
+
+	base64_encode(packet, 256, &base64_length, &base64_ssdv[queued_images*512]);
+	base64_ssdv[base64_length + queued_images*512] = '\0';
+	if ( ++queued_images >= 8 )
+		UploadMultiImages(); 
 }
 
 void ReadString( FILE *fp, char *keyword, char *Result, int Length, int NeedValue ) {
@@ -800,7 +828,7 @@ int ProcessLine( int Channel, char *Line ) {
 	return ( FieldCount == 6 );
 }
 
-void DoPositionCalcs( Channel ) {
+void DoPositionCalcs( int Channel ) {
 	if (Config.LoRaDevices[Channel].Latitude > 1e6) {
 		Config.LoRaDevices[Channel].Latitude *= 1.0e-7;
 		Config.LoRaDevices[Channel].Longitude *= 1.0e-7;
@@ -896,7 +924,7 @@ uint16_t CRC16( char *ptr, size_t len ) {
 
 
 char packet[2][300];
-void getPacket( Channel ) {
+void getPacket( int Channel ) {
 	if ( digitalRead( Config.LoRaDevices[Channel].DIO0 ) ) {
 		packet[Channel][0] = receiveMessage( Channel, &packet[Channel][1] );
 	}
@@ -1066,9 +1094,9 @@ int main( int argc, char **argv ) {
 							} else {
 								Config.LoRaDevices[Channel].BadCRCCount++;
 							}
-						} else if ( (0x66 <= Message[1]) && (0x69 >= Message[1]) && (Bytes > 200) ) {
+						} else if ( (0x66 <= Message[1]) && (0x68 >= Message[1]) && (Bytes > 220) ) {
 							// SSDV packet
-							char Callsign[7], *EncodedCallsign, *EncodedEncoding, *EncodedData, HexString[513];
+							char Callsign[8];
 
 							CallsignCode = Message[2]; CallsignCode <<= 8;
 							CallsignCode |= Message[3]; CallsignCode <<= 8;
@@ -1076,29 +1104,18 @@ int main( int argc, char **argv ) {
 							CallsignCode |= Message[5];
 
 							decode_callsign( Callsign, CallsignCode );
+							Callsign[7]= 0; 
 
 							// ImageNumber = Message[6];
 							// PacketNumber = Message[8];
 
 							LogMessage( "SSDV Packet, Callsign %s, Image %d, Packet %d\n",
 										Callsign, Message[6], Message[7] * 256 + Message[8] );
-							ChannelPrintf( Channel, 3, 1, "SSDV Packet %d bytes          ", Bytes );
 
-							// Upload to server
 							if ( Config.EnableSSDV ) {
-								EncodedCallsign = url_encode( Callsign );
-								EncodedEncoding = url_encode( "hex" );
-
-								Message[0] = 0x55;
-								ConvertStringToHex( HexString, Message, 256 );
-								Message[0] = 0x00;
-								EncodedData = url_encode( HexString );
-
-								UploadImagePacket( EncodedCallsign, EncodedEncoding, EncodedData );
-
-								free( EncodedCallsign );
-								free( EncodedEncoding );
-								free( EncodedData );
+								Message[0] = 0x55; //  add SSDV sync byte at start of  packet
+								UploadImagePacket( &Message[0] );
+								Message[0] = 0x00; //  also used to flag length of next packet
 							}
 
 							Config.LoRaDevices[Channel].SSDVCount++;
@@ -1136,6 +1153,7 @@ int main( int argc, char **argv ) {
 					ChannelPrintf( Channel, 10, 1, "Packet  RSSI = %4d   ", Config.LoRaDevices[Channel].packet_rssi );
 					ChannelPrintf( Channel, 11, 1, "Current RSSI = %4d   ", readRegister( Channel, REG_CURRENT_RSSI )
 															- RSSI_OFFSET );
+					UploadMultiImages();
 					curlPush();
 				}
 			}
