@@ -106,7 +106,7 @@ uint8_t currentMode = 0x81;
 #define RSSI_OFFSET 164
 //#define RSSI_OFFSET 157
 
-const char *Modes[5] = {"Slow", "SSDV", "Repeat", "Turbo", "TurboX"};
+const char *Modes[6] = {"Slow", "SSDV", "Repeat", "Turbo", "TurboX", "Call"};
 
 struct TConfig Config;
 struct TPayload Payloads[16];
@@ -222,21 +222,23 @@ void setLoRaMode( int Channel ) {
 		writeRegister( Channel, REG_FREQ + 1, ( FrequencyValue >> 8 ) & 0xFF );
 		writeRegister( Channel, REG_FREQ + 2, FrequencyValue & 0xFF );
 	}
-
-	// LogMessage("Mode = %d\n", readRegister(Channel, REG_OPMODE));
 }
 
-/////////////////////////////////////
-//    Method:   Setup to receive continuously
-//////////////////////////////////////
+/*
+ *	* Setup to receive continuously *
+ */
 void startReceiving( int Channel ) {
-	writeRegister( Channel, REG_MODEM_CONFIG, Config.LoRaDevices[Channel].ImplicitOrExplicit | Config.LoRaDevices[Channel].ErrorCoding | Config.LoRaDevices[Channel].Bandwidth );
+	writeRegister( Channel, REG_MODEM_CONFIG, Config.LoRaDevices[Channel].ImplicitOrExplicit
+						| Config.LoRaDevices[Channel].ErrorCoding
+						| Config.LoRaDevices[Channel].Bandwidth );
 	writeRegister( Channel, REG_MODEM_CONFIG2, Config.LoRaDevices[Channel].SpreadingFactor | CRC_ON );
-	writeRegister( Channel, REG_MODEM_CONFIG3, 0x04 | Config.LoRaDevices[Channel].LowDataRateOptimize );                                  // 0x04: AGC sets LNA gain
-	writeRegister( Channel, REG_DETECT_OPT, ( readRegister( Channel, REG_DETECT_OPT ) & 0xF8 ) | ( ( Config.LoRaDevices[Channel].SpreadingFactor == SPREADING_6 ) ? 0x05 : 0x03 ) );  // 0x05 For SF6; 0x03 otherwise
-	writeRegister( Channel, REG_DETECTION_THRESHOLD, ( Config.LoRaDevices[Channel].SpreadingFactor == SPREADING_6 ) ? 0x0C : 0x0A );        // 0x0C for SF6, 0x0A otherwise
-
-	LogMessage( "Channel %d %s mode\n", Channel, Modes[Config.LoRaDevices[Channel].SpeedMode] );
+	writeRegister( Channel, REG_MODEM_CONFIG3, 0x04 | Config.LoRaDevices[Channel].LowDataRateOptimize );
+													// 0x04: AGC sets LNA gain
+	writeRegister( Channel, REG_DETECT_OPT, ( readRegister( Channel, REG_DETECT_OPT ) & 0xF8 )
+						| ( ( Config.LoRaDevices[Channel].SpreadingFactor == SPREADING_6 ) ? 0x05 : 0x03 ) );
+													// 0x05 For SF6; 0x03 otherwise
+	writeRegister( Channel, REG_DETECTION_THRESHOLD, ( Config.LoRaDevices[Channel].SpreadingFactor == SPREADING_6 ) ? 0x0C : 0x0A );
+													// 0x0C for SF6, 0x0A otherwise
 
 	writeRegister( Channel, REG_PAYLOAD_LENGTH, Config.LoRaDevices[Channel].PayloadLength );
 	writeRegister( Channel, REG_RX_NB_BYTES, Config.LoRaDevices[Channel].PayloadLength );
@@ -496,9 +498,9 @@ void ReadString( FILE *fp, char *keyword, char *Result, int Length, int NeedValu
 
 	while ( fgets( line, sizeof( line ), fp ) != NULL )
 	{
-		token = strtok( line, "=" );
-		if ( strcasecmp( keyword, token ) == 0 ) {
-			value = strtok( NULL, "\n" );
+		token = strtok( line, "= :\t" );
+		if (token && (strcasecmp( keyword, token ) == 0 )) {
+			value = strtok( NULL, ":= \t\n\r" );
 			strcpy( Result, value );
 			return;
 		}
@@ -605,16 +607,26 @@ void LoadConfigFile() {
 			sprintf( Keyword, "DIO5_%d", Channel );
 			Config.LoRaDevices[Channel].DIO5 = ReadInteger( fp, Keyword, 0, Config.LoRaDevices[Channel].DIO5 );
 
-			LogMessage( "LoRa Channel %d DIO0=%d DIO5=%d\n", Channel, Config.LoRaDevices[Channel].DIO0, Config.LoRaDevices[Channel].DIO5 );
-
 			Config.LoRaDevices[Channel].SpeedMode = 0;
 			sprintf( Keyword, "mode_%d", Channel );
 			Config.LoRaDevices[Channel].SpeedMode = ReadInteger( fp, Keyword, 0, 0 );
+
+			LogMessage( "LoRa Channel %d DIO0=%d DIO5=%d Presets:%s\n", Channel, Config.LoRaDevices[Channel].DIO0
+										, Config.LoRaDevices[Channel].DIO5
+										, Modes[Config.LoRaDevices[Channel].SpeedMode] );
+
 			Config.LoRaDevices[Channel].PayloadLength = 255;
 			ChannelPrintf( Channel, 0, 1, "Channel %d %sMHz %s mode", Channel, Config.LoRaDevices[Channel].Frequency, Modes[Config.LoRaDevices[Channel].SpeedMode] );
 
-			if ( Config.LoRaDevices[Channel].SpeedMode == 4 ) {
-				// Testing
+			if ( Config.LoRaDevices[Channel].SpeedMode == 5 ) {
+				// Calling mode
+				Config.LoRaDevices[Channel].ImplicitOrExplicit = EXPLICIT_MODE;
+				Config.LoRaDevices[Channel].ErrorCoding = ERROR_CODING_4_8;
+				Config.LoRaDevices[Channel].Bandwidth = BANDWIDTH_41K7;
+				Config.LoRaDevices[Channel].SpreadingFactor = SPREADING_11;
+				Config.LoRaDevices[Channel].LowDataRateOptimize = 0;
+			} else if ( Config.LoRaDevices[Channel].SpeedMode == 4 )     {
+				// Turbo 868 Mode
 				Config.LoRaDevices[Channel].ImplicitOrExplicit = IMPLICIT_MODE;
 				Config.LoRaDevices[Channel].ErrorCoding = ERROR_CODING_4_5;
 				Config.LoRaDevices[Channel].Bandwidth = BANDWIDTH_250K;
