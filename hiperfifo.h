@@ -7,3 +7,6 @@ void curlInit();
 void curlPush();
 void curlClean();
 void curlQueue( CURL *easy_handle );
+int curlUploads();
+int curlRetries();
+int curlConflicts();

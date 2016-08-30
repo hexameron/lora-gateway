@@ -37,8 +37,22 @@
 /* Global information, common to all connections */
 
 CURLM *multi;
-int running;
-int pending;
+int running, pending;
+int uploads, retries, curl409;
+
+int curlUploads( void ) {
+	return uploads;
+}
+
+int curlRetries( void ) {
+        return uploads; 
+}
+
+int curlConflicts( void ) {
+	return curl409;
+}
+
+
 
 /* Request clean exit on first Ctrl-C, or force exit on multiple retries */
 static void signal_handler( int sig ) {
@@ -53,8 +67,8 @@ void curlInit() {
 
 	curl_global_init( CURL_GLOBAL_ALL );
 	multi = curl_multi_init();
-	running = 0;
-	pending = 0;
+	running = pending = 0;
+	uploads = retries = curl409 = 0;
 
 	slist_headers = NULL;
 	slist_headers = curl_slist_append( slist_headers, "Accept: application/json" );
@@ -107,6 +121,7 @@ void multi_retry( CURLcode res, CURL *easy ) {
 		if (responseCode == 409) {
 			/* resubmit with no limits */
 			curlQueue( easy );
+			curl409++;
 			return;
 		}
 	}
@@ -117,6 +132,7 @@ void multi_retry( CURLcode res, CURL *easy ) {
 		/* resubmit with rate limits */
 		curlQueue( easy );
 		lastretry = timenow;
+		retries++;
 	} else {
 		/* fail and remove handle */
 		curl_easy_cleanup( easy );
@@ -138,6 +154,7 @@ void check_multi_info() {
 
 			if ( res == CURLE_OK ) {
 				curl_easy_cleanup( easy );
+				uploads++;
 			} else {
 				multi_retry( res, easy );
 			}
