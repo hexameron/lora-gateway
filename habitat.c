@@ -51,7 +51,7 @@ void UploadTelemetryPacket( char *Telemetry ) {
 	/* get a curl handle */
 	curl = curl_easy_init();
 	if ( curl ) {
-#if 1
+		int length;
 		char url[200];
 		char base64_data[1000];
 		size_t base64_length;
@@ -80,8 +80,11 @@ void UploadTelemetryPacket( char *Telemetry ) {
 		curl_easy_setopt( curl, CURLOPT_FAILONERROR, 1 );
 
 		// Convert sentence to base64
-		base64_encode( Telemetry, strlen( Telemetry ), &base64_length, base64_data );
+		length = strlen( Telemetry );
+		Telemetry[length] = '\n';
+		base64_encode( Telemetry, length + 1, &base64_length, base64_data );
 		base64_data[base64_length] = '\0';
+		Telemetry[length] = '\0';
 
 		// Take SHA256 hash of the base64 version and express as hex.  This will be the document ID
 		sha256_init( &ctx );
@@ -107,16 +110,7 @@ void UploadTelemetryPacket( char *Telemetry ) {
 		curl_easy_setopt( curl, CURLOPT_URL, url );
 		curl_easy_setopt( curl, CURLOPT_CUSTOMREQUEST, "PUT" );
 		curl_easy_setopt( curl, CURLOPT_COPYPOSTFIELDS, json );
-#else
-		char post[256];
 
-		curl_easy_setopt( curl, CURLOPT_TIMEOUT, 30 );
-		curl_easy_setopt( curl, CURLOPT_NOSIGNAL, 1 );
-		curl_easy_setopt( curl, CURLOPT_WRITEFUNCTION, habitat_write_data );
-		curl_easy_setopt( curl, CURLOPT_URL, "http://habitat.habhub.org/transition/payload_telemetry" );
-		snprintf( post, sizeof(post), "callsign=%s&string=%s&string_type=ascii&metadata={}", Config.Tracker, Telemetry );
-		curl_easy_setopt( curl, CURLOPT_COPYPOSTFIELDS, post );
-#endif
 		// cleanup later
 		curlQueue( curl );
 	}

@@ -20,7 +20,6 @@
 #include "utils.h"
 #include "global.h"
 
-
 // RFM98
 uint8_t currentMode = 0x81;
 
@@ -817,8 +816,26 @@ void CloseDisplay( WINDOW * mainwin ) {
 
 int ProcessLine( int Channel, char *Line ) {
 	int FieldCount;
+	char *telem;
 
-	FieldCount = sscanf( Line + 2, "%15[^,],%u,%8[^,],%lf,%lf,%u",
+	if (strlen(Line) < 16)
+		return 0;	
+
+	if (Line[0] == '%') {
+		// skip repeated packet
+		// "%$one,,,*\n$$two,,,*\n"
+		telem = strchr( Line, '\n' );
+		if (!telem)
+			return 0;
+		if (strlen(telem) < 16)
+			return 0;
+		if (telem[1] != '$')
+			return 0;
+		telem += 3;
+	} else {
+		telem = &Line[2];
+	}
+	FieldCount = sscanf( telem, "%15[^,],%u,%8[^,],%lf,%lf,%u",
 						 ( Config.LoRaDevices[Channel].Payload ),
 						 &( Config.LoRaDevices[Channel].Counter ),
 						 ( Config.LoRaDevices[Channel].Time ),
@@ -940,6 +957,28 @@ void gpioInterrupt1( void ) {
 	getPacket( 1 );
 }
 
+char *DoTelemetry(char *message) {
+	char messlog[260];
+	char *nextmess;
+
+	if ( (message[0] != '$')&&(message[0] != '%'))
+		return NULL;	
+	nextmess  = strchr( message, '\n' );
+	if (nextmess == NULL)
+		return NULL;
+
+	nextmess[0] = 0;
+	LogMessage( "%s\n", message );
+	sprintf( messlog, "%s\n", message );
+	UpdatePayloadLOG( messlog );
+
+	if (message[0] == '%' )
+		message[0] = '$';
+	UploadTelemetryPacket( message );
+
+	return nextmess + 1;
+}
+
 int main( int argc, char **argv ) {
 	char *Message;
 	uint8_t  Channel, Bytes;
@@ -1006,37 +1045,34 @@ int main( int argc, char **argv ) {
 					Bytes = Message[0];
 					Message[0] = 0;
 					if ( Bytes > 0 ) {
+						if ( Message[1] == 0xe6 ) // repeated SSDV
+							Message[1] = 0x66;
 						if ( Message[1] == '!' ) {
 							LogMessage( "Ch %d: Uploaded message %s\n", Channel, Message + 1 );
 						} else if ( Message[1] == '^' )     {
 							ChannelPrintf( Channel, 3, 1, "Calling message: %d bytes    ", strlen( Message + 1 ) );
 							ProcessCallingMessage( Channel, Message + 3 );
 							LogMessage( "%s\n", Message + 1 );
-						} else if ( Message[1] == '$' )     {
-							ChannelPrintf( Channel, 3, 1, "Telemetry: %d bytes           ", strlen( Message + 1 ) - 1 );
-							UploadTelemetryPacket( Message + 1 );
-							if ( ProcessLine( Channel, Message + 1 ) ) {
-								DoPositionCalcs( Channel );
-							}
+						} else if (( Message[1] == '$' )||( Message[1] == '%' ))     {
 							Config.LoRaDevices[Channel].TelemetryCount++;
+							ChannelPrintf( Channel, 3, 1, "Telemetry: %d bytes          ", Bytes );
 
-							if ( LOG_TELEM & Config.LogLevel ) {
-								if ( LOG_RADIO & Config.LogLevel ) {
-									sprintf( Message + 1 + strlen( Message + 1 ),
-											 "Stats:%d,%1.1lf,%1.1lf,%d,%d,%d,%d\n",
-											 Channel,
-											 Config.LoRaDevices[Channel].Distance,
-											 Config.LoRaDevices[Channel].Elevation,
-											 Config.LoRaDevices[Channel].base_rssi,
-											 Config.LoRaDevices[Channel].packet_rssi,
-											 Config.LoRaDevices[Channel].packet_snr,
-											 Config.LoRaDevices[Channel].freq_offset );
-								}
-								UpdatePayloadLOG( Message + 1 );
+							char *nextmess = &Message[1];
+							if ( ProcessLine( Channel, nextmess ) )	{
+								DoPositionCalcs( Channel );
+								char stats[100];
+								sprintf( stats, "Stats:%1.1lf,%1.1lf,%d,%d,%d,%d\n",
+									Config.LoRaDevices[Channel].Distance,
+									Config.LoRaDevices[Channel].Elevation,
+									Config.LoRaDevices[Channel].base_rssi,
+									Config.LoRaDevices[Channel].packet_rssi,
+									Config.LoRaDevices[Channel].packet_snr,
+									Config.LoRaDevices[Channel].freq_offset );
+								UpdatePayloadLOG( stats );
 							}
-
-							Message[strlen( Message + 1 )] = '\0';
-							LogMessage( "%s\n", Message + 1 );
+							while (nextmess) {
+								nextmess = DoTelemetry(nextmess);
+							}
 						} else if ( (char)0x80 == Message[1] )     {
 							// Binary telemetry packet
 							struct TBinaryPacket BinaryPacket;
@@ -1070,15 +1106,13 @@ int main( int argc, char **argv ) {
 										 Config.LoRaDevices[Channel].Altitude,
 										 BinaryPacket.Fix,
 										 BinaryPacket.Temperature );
-								sprintf( Sentence, "$$%s*%04X\n", Data, CRC16( Data, strlen( Data ) ) );
+								sprintf( Sentence, "$$%s*%04X", Data, CRC16( Data, strlen( Data ) ) );
 
 								UploadTelemetryPacket( Sentence );
 								DoPositionCalcs( Channel );
 								Config.LoRaDevices[Channel].TelemetryCount++;
-								if ( LOG_TELEM & Config.LogLevel ) {
-									if ( LOG_RADIO & Config.LogLevel ) {
-										sprintf( Sentence + strlen( Sentence ),
-												 "Stats:%d,%1.1lf,%1.1lf,%d,%d,%d,%d\n",
+								sprintf( Sentence + strlen( Sentence ),
+												 "\nStats:%d,%1.1lf,%1.1lf,%d,%d,%d,%d\n",
 												 Channel,
 												 Config.LoRaDevices[Channel].Distance,
 												 Config.LoRaDevices[Channel].Elevation,
@@ -1086,9 +1120,7 @@ int main( int argc, char **argv ) {
 												 Config.LoRaDevices[Channel].packet_rssi,
 												 Config.LoRaDevices[Channel].packet_snr,
 												 Config.LoRaDevices[Channel].freq_offset );
-									}
-									UpdatePayloadLOG( Sentence );
-								}
+								UpdatePayloadLOG( Sentence );
 								LogMessage( "Ch %d:%s",Channel, Sentence );
 
 							} else {

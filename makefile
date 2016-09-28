@@ -2,7 +2,7 @@ gateway: gateway.o hiperfifo.o habitat.o utils.o utils.h global.h
 	cc -o gateway gateway.o hiperfifo.o habitat.o utils.o -lm -lwiringPi -lcurl -lncurses
 
 gateway.o: gateway.c utils.h global.h
-	gcc -c gateway.c -pthread -Wall -D_FORTIFY_SOURCE
+	gcc -c gateway.c -pthread -Wall -Wextra -Wno-unused-parameter -D_FORTIFY_SOURCE=2
 
 hiperfifo.o: hiperfifo.c hiperfifo.h
 	gcc -c hiperfifo.c -Wall -D_FORTIFY_SOURCE
