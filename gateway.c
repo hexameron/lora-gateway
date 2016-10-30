@@ -21,15 +21,13 @@
 #include "global.h"
 
 // RFM98
-uint8_t currentMode = 0x81;
-
 #define REG_FIFO                    0x00
+#define REG_OPMODE                  0x01
 #define REG_FREQ                    0x06
 #define REG_FIFO_ADDR_PTR           0x0D
 #define REG_FIFO_TX_BASE_AD         0x0E
 #define REG_FIFO_RX_BASE_AD         0x0F
 #define REG_RX_NB_BYTES             0x13
-#define REG_OPMODE                  0x01
 #define REG_FIFO_RX_CURRENT_ADDR    0x10
 #define REG_IRQ_FLAGS               0x12
 #define REG_PACKET_SNR              0x19
@@ -47,10 +45,29 @@ uint8_t currentMode = 0x81;
 #define REG_DETECT_OPT              0x31
 #define REG_DETECTION_THRESHOLD     0x37
 
+// FSK Settings
+#define REG_BITRATEH                0x02
+#define REG_BITRATEL                0x03
+#define REG_DEVH                    0x04
+#define REG_DEVL                    0x05
+#define REG_RX_CONF                 0x0D
+#define REG_FSK_RSSI                0x11
+#define REG_SYNC_CONF               0x27
+#define REG_SYNC_1                  0x28
+#define REG_SYNC_2                  0x29
+#define REG_CRC                     0x30
+#define REG_FSK_IRQ1                0x3E
+#define REG_FSK_IRQ2                0x3F
+
+
 // MODES
 #define RF96_MODE_RX_CONTINUOUS     0x85
 #define RF96_MODE_SLEEP             0x80
 #define RF96_MODE_STANDBY           0x81
+#define RF69_MODE_RX_CONTINUOUS     0x05
+#define RF69_MODE_SLEEP             0x00
+#define RF69_MODE_STANDBY           0x01
+
 
 #define PAYLOAD_LENGTH              255
 
@@ -102,10 +119,11 @@ uint8_t currentMode = 0x81;
 #define LNA_LOW_GAIN                0xC0  // 1100 0000
 
 //#define RSSI_OFFSET 50
-#define RSSI_OFFSET 164
-//#define RSSI_OFFSET 157
+//#define RSSI_OFFSET 164
+#define RSSI_OFFSET 157
 
-const char *Modes[6] = {"Slow", "SSDV", "Repeat", "Turbo", "TurboX", "Call"};
+const char *Modes[7] = {"Slow", "SSDV", "Repeat", "Turbo", "TurboX", "Call", "UKHAS"};
+#define MODE_FSK (6)
 
 struct TConfig Config;
 struct TPayload Payloads[16];
@@ -169,54 +187,41 @@ void ChannelPrintf( int Channel, int row, int column, const char *format, ... ) 
 }
 
 void setMode( int Channel, uint8_t newMode ) {
-	if ( newMode == currentMode ) {
-		return;
-	}
-
 	switch ( newMode )
 	{
+	case RF69_MODE_RX_CONTINUOUS:	
 	case RF96_MODE_RX_CONTINUOUS:
-		writeRegister( Channel, REG_PA_CONFIG, PA_OFF_BOOST ); // TURN PA OFF FOR RECIEVE??
-		writeRegister( Channel, REG_LNA, LNA_MAX_GAIN ); // LNA_MAX_GAIN);  // MAX GAIN FOR RECIEVE
-		writeRegister( Channel, REG_OPMODE, newMode );
-		currentMode = newMode;
-		// LogMessage("Changing to Receive Continuous Mode\n");
-		break;
+	case RF69_MODE_SLEEP:
 	case RF96_MODE_SLEEP:
-		writeRegister( Channel, REG_OPMODE, newMode );
-		currentMode = newMode;
-		// LogMessage("Changing to Sleep Mode\n");
-		break;
+	case RF69_MODE_STANDBY:
 	case RF96_MODE_STANDBY:
-		writeRegister( Channel, REG_OPMODE, newMode );
-		currentMode = newMode;
-		// LogMessage("Changing to Standby Mode\n");
 		break;
-	default: return;
+	default:
+		return;
 	}
-
-	if ( newMode != RF96_MODE_SLEEP ) {
-		delay( 1 );
-	}
-
-	// LogMessage("Mode Change Done\n");
-	return;
+	writeRegister( Channel, REG_OPMODE, newMode );
+	// LogMessage("Channel %d changing to Mode %d\n", Channel, newMode);
+	usleep( 50000 );
 }
 
 
-void setLoRaMode( int Channel ) {
+void setChipMode( int Channel, int lora ) {
 	double Frequency;
 	unsigned long FrequencyValue;
 
-	// LogMessage("Setting LoRa Mode\n");
-	setMode( Channel, RF96_MODE_SLEEP );
-	writeRegister( Channel, REG_OPMODE,0x80 );
-
-	setMode( Channel, RF96_MODE_SLEEP );
+	// Need to be in sleep mode BEFORE changing modulation 
+	if (lora) {
+		setMode( Channel, RF96_MODE_SLEEP );
+		setMode( Channel, RF96_MODE_SLEEP );
+		setMode( Channel, RF96_MODE_SLEEP );
+	} else {
+		setMode( Channel, RF69_MODE_SLEEP );
+		setMode( Channel, RF69_MODE_SLEEP );
+		setMode( Channel, RF69_MODE_SLEEP );
+	}
 
 	if ( sscanf( Config.LoRaDevices[Channel].Frequency, "%lf", &Frequency ) ) {
 		FrequencyValue = (unsigned long)( Frequency * 7110656 / 434 );
-		// LogMessage("FrequencyValue = %06Xh\n", FrequencyValue);
 		writeRegister( Channel, REG_FREQ,   ( FrequencyValue >> 16 ) & 0xFF );
 		writeRegister( Channel, REG_FREQ + 1, ( FrequencyValue >> 8 ) & 0xFF );
 		writeRegister( Channel, REG_FREQ + 2, FrequencyValue & 0xFF );
@@ -242,14 +247,38 @@ void startReceiving( int Channel ) {
 	writeRegister( Channel, REG_PAYLOAD_LENGTH, Config.LoRaDevices[Channel].PayloadLength );
 	writeRegister( Channel, REG_RX_NB_BYTES, Config.LoRaDevices[Channel].PayloadLength );
 
-	// writeRegister(Channel, REG_HOP_PERIOD,0xFF);
-
-	// writeRegister(Channel, REG_FIFO_ADDR_PTR, readRegister(Channel, REG_FIFO_RX_BASE_AD));
 	writeRegister( Channel, REG_FIFO_RX_BASE_AD, 0 );
 	writeRegister( Channel, REG_FIFO_ADDR_PTR, 0 );
 
-	// Setup Receive Continous Mode
+	writeRegister( Channel, REG_PA_CONFIG, PA_OFF_BOOST );
+	writeRegister( Channel, REG_LNA, LNA_MAX_GAIN );
+
+	writeRegister( Channel, REG_IRQ_FLAGS, 0xFF );
 	setMode( Channel, RF96_MODE_RX_CONTINUOUS );
+}
+
+void fnarr( int Channel ) {
+	//	UKHAS type 2FSK
+	setChipMode( Channel, 0 );
+
+	//	2kHz bitrate
+	writeRegister( Channel, REG_BITRATEH, 0x0A );
+	writeRegister( Channel, REG_BITRATEL, 0xD5 );
+
+	//	12kHz deviation
+	writeRegister( Channel, REG_DEVH, 0x00 );
+	writeRegister( Channel, REG_DEVL, 0xC5 );
+
+	// Sync on two bytes, CRC off.
+	writeRegister( Channel, REG_SYNC_CONF, 0x51 );
+	writeRegister( Channel, REG_SYNC_1,  0x2D );
+	writeRegister( Channel, REG_SYNC_2, 0xAA );
+	writeRegister( Channel, REG_CRC,  0x90 );  //  default CRC ON
+	writeRegister( Channel, REG_RX_CONF, 0x8E );
+
+	writeRegister( Channel, REG_FSK_IRQ1, 0xFF );
+	writeRegister( Channel, REG_FSK_IRQ2, 0xFF );
+	setMode( Channel, RF69_MODE_RX_CONTINUOUS );
 }
 
 void setupRFM98( int Channel ) {
@@ -258,14 +287,17 @@ void setupRFM98( int Channel ) {
 		pinMode( Config.LoRaDevices[Channel].DIO0, INPUT );
 		pinMode( Config.LoRaDevices[Channel].DIO5, INPUT );
 
-		if ( wiringPiSPISetup( Channel, 1000000 ) < 0 ) {
+		if ( wiringPiSPISetup( Channel, 500000 ) < 0 ) {
 			fprintf( stderr, "Failed to open SPI port.  Try loading spi library with 'gpio load spi'" );
 			exit( 1 );
 		}
-
+		if ( Config.LoRaDevices[Channel].SpeedMode == MODE_FSK ) {
+			// RFM69 compatible 2FSK
+			fnarr( Channel );
+			return;
+		}
 		// LoRa mode
-		setLoRaMode( Channel );
-
+		setChipMode( Channel, 1 );
 		startReceiving( Channel );
 	}
 }
@@ -339,45 +371,57 @@ void ProcessCallingMessage( int Channel, char *Message ) {
 
 /* Critical section - concurrent use for wiringPi interrupts */
 int receiveMessage( int Channel, char *message ) {
-	int i, Bytes, currentAddr, x;
+	int i, currentAddr, x;
 	unsigned char data[257];
+	int snr, rssi, Bytes;
 
-	Bytes = 0;
+	x = snr = rssi = Bytes = 0;
 
-	x = readRegister( Channel, REG_IRQ_FLAGS );
-	// clear the rxDone flag
-	writeRegister( Channel, REG_IRQ_FLAGS, 0x40 );
+	if ( Config.LoRaDevices[Channel].SpeedMode != MODE_FSK ) {
+		rssi = (int)(uint8_t)readRegister( Channel, REG_PACKET_RSSI ) - RSSI_OFFSET;
+		x = readRegister( Channel, REG_IRQ_FLAGS );
+		writeRegister( Channel, REG_IRQ_FLAGS, 0x40 );
+	}
+	Config.LoRaDevices[Channel].packet_rssi = rssi;
 
-	Config.LoRaDevices[Channel].packet_rssi = readRegister( Channel, REG_PACKET_RSSI ) - RSSI_OFFSET;
-
-	// check for payload crc issues (0x20 is the bit we are looking for
+	// check for payload crc fail
 	if ( ( x & 0x20 ) == 0x20 ) {
-		writeRegister( Channel, REG_IRQ_FLAGS, 0x20 );
+		writeRegister( Channel, REG_IRQ_FLAGS, 0xFF );
 		Config.LoRaDevices[Channel].BadCRCCount++;
-	} else
-	{
+		return 0;
+	}
+
+	if ( Config.LoRaDevices[Channel].SpeedMode == MODE_FSK ) {
+		Bytes = 64;
+	} else {
 		currentAddr = readRegister( Channel, REG_FIFO_RX_CURRENT_ADDR );
 		Bytes = readRegister( Channel, REG_RX_NB_BYTES );
 		writeRegister( Channel, REG_FIFO_ADDR_PTR, currentAddr );
-
-		data[0] = REG_FIFO;
-		wiringPiSPIDataRW( Channel, data, Bytes + 1 );
-		for ( i = 0; i <= Bytes; i++ )
-		{
-			message[i] = data[i + 1];
-		}
-		message[Bytes] = '\0';
-		Config.LoRaDevices[Channel].packet_snr = ( (int8_t)readRegister( Channel, REG_PACKET_SNR ) ) / 4;
-		Config.LoRaDevices[Channel].base_rssi = readRegister( Channel, REG_CURRENT_RSSI ) - RSSI_OFFSET;
-		if ( Config.LoRaDevices[Channel].Bandwidth < BANDWIDTH_41K7 ) {
-			Config.LoRaDevices[Channel].freq_offset = (int)FrequencyError( Channel );
-		} else {
-			Config.LoRaDevices[Channel].freq_offset = 0;
-		}
 	}
 
-	// Clear all flags
-	writeRegister( Channel, REG_IRQ_FLAGS, 0xFF );
+	data[0] = REG_FIFO;
+	wiringPiSPIDataRW( Channel, data, Bytes + 1 );
+	for ( i = 0; i <= Bytes; i++ )
+			message[i] = data[i + 1];
+	message[Bytes] = '\0';
+
+	if ( Config.LoRaDevices[Channel].SpeedMode != MODE_FSK ) {
+		//  For logging, try to grab base rssi between packets
+		snr = ( (int8_t)readRegister( Channel, REG_PACKET_SNR ) ) / 4;
+		rssi = (int)(uint8_t)readRegister( Channel, REG_CURRENT_RSSI ) - RSSI_OFFSET;
+		Config.LoRaDevices[Channel].base_rssi = rssi;
+
+		//  Clear all flags
+		writeRegister( Channel, REG_IRQ_FLAGS, 0xFF );
+	}
+	Config.LoRaDevices[Channel].packet_snr = snr;
+
+	if (( Config.LoRaDevices[Channel].SpeedMode != MODE_FSK ) 
+			&& (Config.LoRaDevices[Channel].Bandwidth < BANDWIDTH_41K7 )) {
+		Config.LoRaDevices[Channel].freq_offset = (int)FrequencyError( Channel );
+	} else {
+		Config.LoRaDevices[Channel].freq_offset = 0;
+	}
 	return Bytes;
 }
 /* Critical section - concurrent use for wiringPi interrupts */
@@ -598,6 +642,10 @@ void LoadConfigFile() {
 			Config.LoRaDevices[Channel].SpeedMode = 0;
 			sprintf( Keyword, "mode_%d", Channel );
 			Config.LoRaDevices[Channel].SpeedMode = ReadInteger( fp, Keyword, 0, 0 );
+			if (Config.LoRaDevices[Channel].SpeedMode < 0)
+				Config.LoRaDevices[Channel].SpeedMode = 0;
+			if (Config.LoRaDevices[Channel].SpeedMode > MODE_FSK)
+				Config.LoRaDevices[Channel].SpeedMode = MODE_FSK;
 
 			LogMessage( "LoRa Channel %d DIO0=%d DIO5=%d Presets:%s on %s MHz\n", Channel, Config.LoRaDevices[Channel].DIO0
 										, Config.LoRaDevices[Channel].DIO5
@@ -607,7 +655,10 @@ void LoadConfigFile() {
 			Config.LoRaDevices[Channel].PayloadLength = 255;
 			ChannelPrintf( Channel, 0, 1, "Channel %d %sMHz %s mode", Channel, Config.LoRaDevices[Channel].Frequency, Modes[Config.LoRaDevices[Channel].SpeedMode] );
 
-			if ( Config.LoRaDevices[Channel].SpeedMode == 5 ) {
+			if ( Config.LoRaDevices[Channel].SpeedMode == MODE_FSK ) {
+				//UKHAS
+				continue;
+			} else if ( Config.LoRaDevices[Channel].SpeedMode == 5 )    {
 				// Calling mode
 				Config.LoRaDevices[Channel].ImplicitOrExplicit = EXPLICIT_MODE;
 				Config.LoRaDevices[Channel].ErrorCoding = ERROR_CODING_4_8;
@@ -1163,10 +1214,8 @@ int main( int argc, char **argv ) {
 				// redraw screen every second
 				if ( 0 == LoopCount ) {
 					uint32_t interval;
+					int	rssimode;
 					char *timescale = "s";
-
-					// Check for missed interrupt
-					getPacket( Channel );
 
 					interval = time( NULL ) - Config.LoRaDevices[Channel].LastPacketAt; 
 					if ( interval > 99 * 60 ) {
@@ -1176,7 +1225,15 @@ int main( int argc, char **argv ) {
 						interval /= 60;
 						timescale = "m";
 					}
-
+					if ( Config.LoRaDevices[Channel].SpeedMode == MODE_FSK ) {
+						rssimode = -(int)( (uint8_t)readRegister( Channel, REG_FSK_RSSI) ) / 2;
+						char intflags = readRegister( Channel, REG_FSK_IRQ2);
+						if (intflags & (1<<1)) // FSK Packet CRC OK.
+							packet[Channel][0] = receiveMessage( Channel, &packet[Channel][1] );
+					} else {
+						rssimode = (int)(uint8_t)readRegister( Channel, REG_CURRENT_RSSI) - RSSI_OFFSET;
+						getPacket( Channel ); //  Check for missed interrupt
+					}
 					ChannelPrintf( Channel,  5, 1, "%u%s since last packet   ", interval, timescale );
 					ChannelPrintf( Channel,  6, 1, "Telem Packets: %d   ", Config.LoRaDevices[Channel].TelemetryCount );
 					ChannelPrintf( Channel,  7, 1, "Image Packets: %d   ", Config.LoRaDevices[Channel].SSDVCount );
@@ -1184,8 +1241,7 @@ int main( int argc, char **argv ) {
 												Config.LoRaDevices[Channel].UnknownCount );
 					ChannelPrintf( Channel,  9, 1, "Packet   SNR: %4d   ", Config.LoRaDevices[Channel].packet_snr );
 					ChannelPrintf( Channel, 10, 1, "Packet  RSSI: %4d   ", Config.LoRaDevices[Channel].packet_rssi );
-					ChannelPrintf( Channel, 11, 1, "Current RSSI: %4d   ", readRegister( Channel, REG_CURRENT_RSSI )
-															- RSSI_OFFSET );
+					ChannelPrintf( Channel, 11, 1, "Current RSSI: %4d   ", rssimode );
 				}
 			}
 		}

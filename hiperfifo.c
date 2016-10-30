@@ -34,11 +34,8 @@
 
 #include "hiperfifo.h"
 
-/* Global information, common to all connections */
-
 CURLM *multi;
-int running, pending;
-int uploads, retries, curl409;
+int running, uploads, retries, curl409;
 
 int curlUploads( void ) {
 	return uploads;
@@ -51,7 +48,6 @@ int curlRetries( void ) {
 int curlConflicts( void ) {
 	return curl409;
 }
-
 
 
 /* Request clean exit on first Ctrl-C, or force exit on multiple retries */
@@ -67,8 +63,7 @@ void curlInit() {
 
 	curl_global_init( CURL_GLOBAL_ALL );
 	multi = curl_multi_init();
-	running = pending = 0;
-	uploads = retries = curl409 = 0;
+	running = uploads = retries = curl409 = 0;
 
 	slist_headers = NULL;
 	slist_headers = curl_slist_append( slist_headers, "Accept: application/json" );
@@ -80,10 +75,6 @@ void curlInit() {
 void mcode_or_die( const char *where, CURLMcode code ) {
 	const char *s;
 	CURLMcode rc = code;
-
-	if ( CURLM_OK == code ) {
-		return;
-	}
 
 	if ( CURLM_CALL_MULTI_PERFORM == code ) {
 		rc = curl_multi_perform( multi, &running );
@@ -100,7 +91,7 @@ void mcode_or_die( const char *where, CURLMcode code ) {
 	case     CURLM_INTERNAL_ERROR:     s = "CURLM_INTERNAL_ERROR";     break;
 	case     CURLM_UNKNOWN_OPTION:     s = "CURLM_UNKNOWN_OPTION";     break;
 
-//    case     CURLM_ADDED_ALREADY:
+//	case     CURLM_ADDED_ALREADY:
 	case     CURLM_LAST:
 	default:              printf( "\n    Unexpected curl error:  %s  \n",where );
 		return;
@@ -133,10 +124,11 @@ void multi_retry( CURLcode res, CURL *easy ) {
 		curlQueue( easy );
 		lastretry = timenow;
 		retries++;
-	} else {
-		/* fail and remove handle */
-		curl_easy_cleanup( easy );
-	}
+		return;
+	} 
+
+	/* fail silently and remove handle */
+	curl_easy_cleanup( easy );
 }
 
 /* Check for completed transfers, and remove their easy handles */
@@ -172,12 +164,12 @@ void curlQueue( CURL *easy_handle ) {
 	}
 
 	/* drop messages if the queue is blocked */
-	if ( running >= 16 ) {
+	if ( running >= 20 ) {
 		// first check if any have recently finished
 		rc = curl_multi_perform( multi, &running );
 		mcode_or_die( "curlQueue: curl_multi_perform", rc );
 	}
-	if ( running >= 20 ) {
+	if ( running >= 30 ) {
 		// drop if still blocked
 		curl_easy_cleanup( easy_handle );
 		return;
@@ -185,15 +177,10 @@ void curlQueue( CURL *easy_handle ) {
 
 	rc = curl_multi_add_handle( multi, easy_handle );
 	mcode_or_die( "curlQueue: curl_multi_add_handle", rc );
-	pending++;
 }
 
 void curlPush() {
 	CURLMcode rc;
-
-	if ( !pending ) {
-//			return;
-	}
 
 	// clear completed handles
 	check_multi_info();
@@ -201,7 +188,6 @@ void curlPush() {
 	// start new handles
 	rc = curl_multi_perform( multi, &running );
 	mcode_or_die( "curlPush: curl_multi_perform", rc );
-	pending = 0;
 }
 
 void curlClean() {
