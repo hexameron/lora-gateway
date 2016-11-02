@@ -51,7 +51,11 @@
 #define REG_DEVH                    0x04
 #define REG_DEVL                    0x05
 #define REG_RX_CONF                 0x0D
+#define REG_RSSI_CONF               0x0E
+#define REG_RSSI_FLOOR              0x10
 #define REG_FSK_RSSI                0x11
+#define REG_RX_BW                   0x12
+#define REG_START_AGC               0x1A
 #define REG_SYNC_CONF               0x27
 #define REG_SYNC_1                  0x28
 #define REG_SYNC_2                  0x29
@@ -260,10 +264,11 @@ void startReceiving( int Channel ) {
 void fnarr( int Channel ) {
 	//	UKHAS type 2FSK
 	setChipMode( Channel, 0 );
+	Config.LoRaDevices[Channel].packet_rssi = 0;
 
 	//	2kHz bitrate
-	writeRegister( Channel, REG_BITRATEH, 0x0A );
-	writeRegister( Channel, REG_BITRATEL, 0xD5 );
+	writeRegister( Channel, REG_BITRATEH, 0x3E );
+	writeRegister( Channel, REG_BITRATEL, 0x80 );
 
 	//	12kHz deviation
 	writeRegister( Channel, REG_DEVH, 0x00 );
@@ -273,12 +278,14 @@ void fnarr( int Channel ) {
 	writeRegister( Channel, REG_SYNC_CONF, 0x51 );
 	writeRegister( Channel, REG_SYNC_1,  0x2D );
 	writeRegister( Channel, REG_SYNC_2, 0xAA );
-	writeRegister( Channel, REG_CRC,  0x90 );  //  default CRC ON
-	writeRegister( Channel, REG_RX_CONF, 0x8E );
+	writeRegister( Channel, REG_CRC,  0x90 );    //  default CRC ON
+	writeRegister( Channel, REG_RX_CONF, 0x8E ); //  default AGC ON
+	writeRegister( Channel, REG_RX_BW, 0x03 );   //  64kHz filter
 
 	writeRegister( Channel, REG_FSK_IRQ1, 0xFF );
 	writeRegister( Channel, REG_FSK_IRQ2, 0xFF );
 	setMode( Channel, RF69_MODE_RX_CONTINUOUS );
+	writeRegister( Channel, REG_START_AGC, 0x10 ); // Trigger AGC setting
 }
 
 void setupRFM98( int Channel ) {
@@ -288,7 +295,7 @@ void setupRFM98( int Channel ) {
 		pinMode( Config.LoRaDevices[Channel].DIO5, INPUT );
 
 		if ( wiringPiSPISetup( Channel, 500000 ) < 0 ) {
-			fprintf( stderr, "Failed to open SPI port.  Try loading spi library with 'gpio load spi'" );
+			fprintf( stderr, "Failed to open SPI port.  Try loading spi in raspi-config" );
 			exit( 1 );
 		}
 		if ( Config.LoRaDevices[Channel].SpeedMode == MODE_FSK ) {
@@ -1078,12 +1085,8 @@ int main( int argc, char **argv ) {
 	for ( Channel = 0; Channel <= 1; Channel++ ) {
 		setupRFM98( Channel );
 		Config.LoRaDevices[Channel].LastPacketAt = time( NULL );
-		if ( Config.LoRaDevices[Channel].InUse ) {
-			if ( digitalRead( Config.LoRaDevices[Channel].DIO0 ) ) {
-				packet[Channel][0] = receiveMessage( Channel, &packet[Channel][1] );
-			}
+		if (( Config.LoRaDevices[Channel].InUse ) && ( Config.LoRaDevices[Channel].SpeedMode != MODE_FSK ))
 			wiringPiISR( Config.LoRaDevices[Channel].DIO0, INT_EDGE_RISING, Channel ? &gpioInterrupt1 : &gpioInterrupt0 );
-		}
 	}
 
 	while ( !curl_terminate )
@@ -1214,7 +1217,7 @@ int main( int argc, char **argv ) {
 				// redraw screen every second
 				if ( 0 == LoopCount ) {
 					uint32_t interval;
-					int	rssimode;
+					int	packrssi, rssimode;
 					char *timescale = "s";
 
 					interval = time( NULL ) - Config.LoRaDevices[Channel].LastPacketAt; 
@@ -1226,10 +1229,18 @@ int main( int argc, char **argv ) {
 						timescale = "m";
 					}
 					if ( Config.LoRaDevices[Channel].SpeedMode == MODE_FSK ) {
-						rssimode = -(int)( (uint8_t)readRegister( Channel, REG_FSK_RSSI) ) / 2;
+						rssimode = (uint8_t)readRegister( Channel, REG_FSK_RSSI);
+						packrssi = (  rssimode - 2 * Config.LoRaDevices[Channel].packet_rssi - 12) >> 1;
+						if (packrssi < 0)
+							packrssi = 0;
+						writeRegister( Channel, REG_RSSI_FLOOR, (uint8_t)packrssi);
+						rssimode = -(rssimode / 2);
+						Config.LoRaDevices[Channel].packet_rssi = -(packrssi / 2);
+
 						char intflags = readRegister( Channel, REG_FSK_IRQ2);
 						if (intflags & (1<<1)) // FSK Packet CRC OK.
 							packet[Channel][0] = receiveMessage( Channel, &packet[Channel][1] );
+						writeRegister( Channel, REG_FSK_IRQ2, 0xFF );
 					} else {
 						rssimode = (int)(uint8_t)readRegister( Channel, REG_CURRENT_RSSI) - RSSI_OFFSET;
 						getPacket( Channel ); //  Check for missed interrupt
