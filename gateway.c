@@ -309,7 +309,7 @@ void setupRFM98( int Channel ) {
 	}
 }
 
-double FrequencyError( int Channel ) {
+double FrequencyError( int Channel, bool retune ) {
 	double Offset;
 	int32_t Frequency, Temp;
 
@@ -325,7 +325,7 @@ double FrequencyError( int Channel ) {
 	Offset = -( (double)Temp * ( 1 << 24 ) / 32000000.0 ) * ( Config.LoRaDevices[Channel].Reference / 500000.0 );
 
 	// Avoid unnecessary changes
-	if ( ( Offset > +900.0 ) || ( Offset < -900.0 ) ) {
+	if ( retune && (( Offset > +900.0 ) || ( Offset < -900.0 )) ) {
 		Temp = (int32_t)readRegister( Channel, REG_FREQ );
 		Temp <<= 8;
 		Temp += (int32_t)readRegister( Channel, REG_FREQ + 1 );
@@ -357,7 +357,7 @@ void ProcessCallingMessage( int Channel, char *Message ) {
 				 &LowDataRateOptimize ) == 7 ) {
 		setMode( Channel, RF96_MODE_SLEEP );
 
-		Frequency -= FrequencyError( Channel );
+		Frequency -= FrequencyError( Channel, false );
 		freqSet = (int)( Frequency * 7110656 / 434 );
 		writeRegister( Channel, REG_FREQ,   ( freqSet >> 16 ) & 0xff );
 		writeRegister( Channel, REG_FREQ + 1, ( freqSet >> 8 ) & 0xff );
@@ -395,6 +395,7 @@ int receiveMessage( int Channel, char *message ) {
 	if ( ( x & 0x20 ) == 0x20 ) {
 		writeRegister( Channel, REG_IRQ_FLAGS, 0xFF );
 		Config.LoRaDevices[Channel].BadCRCCount++;
+		Config.LoRaDevices[Channel].freq_offset = (int)FrequencyError( Channel, false );
 		return 0;
 	}
 
@@ -417,18 +418,13 @@ int receiveMessage( int Channel, char *message ) {
 		snr = ( (int8_t)readRegister( Channel, REG_PACKET_SNR ) ) / 4;
 		rssi = (int)(uint8_t)readRegister( Channel, REG_CURRENT_RSSI ) - RSSI_OFFSET;
 		Config.LoRaDevices[Channel].base_rssi = rssi;
+		Config.LoRaDevices[Channel].freq_offset = (int)FrequencyError( Channel,
+						( Config.LoRaDevices[Channel].Bandwidth <= BANDWIDTH_41K7 ) );
 
 		//  Clear all flags
 		writeRegister( Channel, REG_IRQ_FLAGS, 0xFF );
 	}
 	Config.LoRaDevices[Channel].packet_snr = snr;
-
-	if (( Config.LoRaDevices[Channel].SpeedMode != MODE_FSK ) 
-			&& (Config.LoRaDevices[Channel].Bandwidth < BANDWIDTH_41K7 )) {
-		Config.LoRaDevices[Channel].freq_offset = (int)FrequencyError( Channel );
-	} else {
-		Config.LoRaDevices[Channel].freq_offset = 0;
-	}
 	return Bytes;
 }
 /* Critical section - concurrent use for wiringPi interrupts */
@@ -1253,6 +1249,7 @@ int main( int argc, char **argv ) {
 					ChannelPrintf( Channel,  9, 1, "Packet   SNR: %4d   ", Config.LoRaDevices[Channel].packet_snr );
 					ChannelPrintf( Channel, 10, 1, "Packet  RSSI: %4d   ", Config.LoRaDevices[Channel].packet_rssi );
 					ChannelPrintf( Channel, 11, 1, "Current RSSI: %4d   ", rssimode );
+					ChannelPrintf( Channel, 12, 1, "Freq. offset: %4d kHz  ", Config.LoRaDevices[Channel].freq_offset >> 10 );
 				}
 			}
 		}
