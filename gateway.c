@@ -44,6 +44,10 @@
 #define REG_FREQ_ERROR              0x28
 #define REG_DETECT_OPT              0x31
 #define REG_DETECTION_THRESHOLD     0x37
+#define REG_SYNC		    0x39
+
+// sync = 0x12-default, 0x34-lorawan, 00-fossasat
+#define SYNC_VAL			0x12
 
 // FSK Settings
 #define REG_BITRATEH                0x02
@@ -55,11 +59,15 @@
 #define REG_RSSI_FLOOR              0x10
 #define REG_FSK_RSSI                0x11
 #define REG_RX_BW                   0x12
+#define REG_AFC_BW                  0x13
 #define REG_START_AGC               0x1A
+#define REG_PREAMBLE                0x1F
 #define REG_SYNC_CONF               0x27
 #define REG_SYNC_1                  0x28
 #define REG_SYNC_2                  0x29
-#define REG_CRC                     0x30
+#define REG_CONF_CRC                0x30
+#define REG_CONF_2                  0x31
+#define REG_PAYLOAD_LENGTH_FSK      0x32
 #define REG_FSK_IRQ1                0x3E
 #define REG_FSK_IRQ2                0x3F
 
@@ -122,11 +130,11 @@
 #define LNA_OFF_GAIN                0x00
 #define LNA_LOW_GAIN                0xC0  // 1100 0000
 
-//#define RSSI_OFFSET 50
+#define RSSI_OFFSET 50
 //#define RSSI_OFFSET 164
-#define RSSI_OFFSET 157
+//#define RSSI_OFFSET 157
 
-const char *Modes[7] = {"Slow", "SSDV", "Repeat", "Turbo", "TurboX", "Call", "UKHAS"};
+const char *Modes[7] = {"Slow", "SSDV", "Repeat", "Turbo", "TurboX", "Call", "2FSK"};
 #define MODE_FSK (6)
 
 struct TConfig Config;
@@ -247,7 +255,9 @@ void startReceiving( int Channel ) {
 													// 0x05 For SF6; 0x03 otherwise
 	writeRegister( Channel, REG_DETECTION_THRESHOLD, ( Config.LoRaDevices[Channel].SpreadingFactor == SPREADING_6 ) ? 0x0C : 0x0A );
 													// 0x0C for SF6, 0x0A otherwise
-
+													// 0x04: AGC sets LNA gain
+	writeRegister( Channel, REG_SYNC, SYNC_VAL ); // !! breaks everything
+	
 	writeRegister( Channel, REG_PAYLOAD_LENGTH, Config.LoRaDevices[Channel].PayloadLength );
 	writeRegister( Channel, REG_RX_NB_BYTES, Config.LoRaDevices[Channel].PayloadLength );
 
@@ -261,29 +271,33 @@ void startReceiving( int Channel ) {
 	setMode( Channel, RF96_MODE_RX_CONTINUOUS );
 }
 
-void fnarr( int Channel ) {
-	//	UKHAS type 2FSK
+#define FSK_DATABYTES (16)
+void hab2fsk( int Channel ) {
+	// 600 Hz 2FSK
 	setChipMode( Channel, 0 );
 	Config.LoRaDevices[Channel].packet_rssi = 0;
 
-	//	2kHz bitrate
-	writeRegister( Channel, REG_BITRATEH, 0x3E );
-	writeRegister( Channel, REG_BITRATEL, 0x80 );
+	writeRegister( Channel, REG_CONF_CRC,	0x00);	// fixed length, no whitening, CRC off, no addressing
+	writeRegister( Channel, REG_CONF_2,	0x40);	// packet mode
+	//  writeRegister(REG_BITRATEH,		0xFA);	// 32MHz / 256 * 250  => 500 Hz
+	writeRegister( Channel, REG_BITRATEH,	0xD0);  // 600 Hz
+	writeRegister( Channel, REG_BITRATEL,	0x35);	// - but not exactly
+	writeRegister( Channel, REG_DEVL,	0x08);	// 7 * 120 Hz => 840 Hz
+	writeRegister( Channel, REG_PAYLOAD_LENGTH_FSK, FSK_DATABYTES);
+	writeRegister( Channel, REG_SYNC_CONF,	0x73);	// // restart,4 sync+on, preamble 5555
+	writeRegister( Channel, REG_SYNC_1 + 0,	0x96);	// horus sync
+	writeRegister( Channel, REG_SYNC_1 + 1,	0x69);	// horus sync
+	writeRegister( Channel, REG_SYNC_1 + 2,	0x69);	// horus sync
+	writeRegister( Channel, REG_SYNC_1 + 3,	0x96);	// horus sync
 
-	//	12kHz deviation
-	writeRegister( Channel, REG_DEVH, 0x00 );
-	writeRegister( Channel, REG_DEVL, 0xC5 );
+	writeRegister( Channel, REG_RX_BW,	0x06 );   //  8kHz filter
+	writeRegister( Channel, REG_AFC_BW,	0x06 );   //  8kHz filter
 
-	// Sync on two bytes, CRC off.
-	writeRegister( Channel, REG_SYNC_CONF, 0x51 );
-	writeRegister( Channel, REG_SYNC_1,  0x2D );
-	writeRegister( Channel, REG_SYNC_2, 0xAA );
-	writeRegister( Channel, REG_CRC,  0x90 );    //  default CRC ON
-	writeRegister( Channel, REG_RX_CONF, 0x8E ); //  default AGC ON
-	writeRegister( Channel, REG_RX_BW, 0x03 );   //  64kHz filter
+	writeRegister( Channel, REG_PREAMBLE,	0xA8);
+	writeRegister( Channel, REG_RX_CONF,	0x1E);
 
 	writeRegister( Channel, REG_FSK_IRQ1, 0xFF );
-	writeRegister( Channel, REG_FSK_IRQ2, 0xFF );
+	writeRegister( Channel, REG_FSK_IRQ2, 0xFF );	// Clear all interrupts
 	setMode( Channel, RF69_MODE_RX_CONTINUOUS );
 	writeRegister( Channel, REG_START_AGC, 0x10 ); // Trigger AGC setting
 }
@@ -299,8 +313,7 @@ void setupRFM98( int Channel ) {
 			exit( 1 );
 		}
 		if ( Config.LoRaDevices[Channel].SpeedMode == MODE_FSK ) {
-			// RFM69 compatible 2FSK
-			fnarr( Channel );
+			hab2fsk( Channel );
 			return;
 		}
 		// LoRa mode
@@ -388,23 +401,23 @@ int receiveMessage( int Channel, char *message ) {
 		rssi = (int)(uint8_t)readRegister( Channel, REG_PACKET_RSSI ) - RSSI_OFFSET;
 		x = readRegister( Channel, REG_IRQ_FLAGS );
 		writeRegister( Channel, REG_IRQ_FLAGS, 0x40 );
-	}
-	Config.LoRaDevices[Channel].packet_rssi = rssi;
 
-	// check for payload crc fail
-	if ( ( x & 0x20 ) == 0x20 ) {
+		Config.LoRaDevices[Channel].packet_rssi = rssi;
+
+		// check for payload crc fail
+		if ( ( x & 0x20 ) == 0x20 ) {
 		writeRegister( Channel, REG_IRQ_FLAGS, 0xFF );
 		Config.LoRaDevices[Channel].BadCRCCount++;
 		Config.LoRaDevices[Channel].freq_offset = (int)FrequencyError( Channel, false );
 		return 0;
-	}
+		}
 
-	if ( Config.LoRaDevices[Channel].SpeedMode == MODE_FSK ) {
-		Bytes = 64;
-	} else {
 		currentAddr = readRegister( Channel, REG_FIFO_RX_CURRENT_ADDR );
 		Bytes = readRegister( Channel, REG_RX_NB_BYTES );
 		writeRegister( Channel, REG_FIFO_ADDR_PTR, currentAddr );
+	} else { // if  (MODE_FSK)
+		Bytes = FSK_DATABYTES;
+		writeRegister( Channel, REG_FSK_IRQ2, 0x40 );
 	}
 
 	data[0] = REG_FIFO;
@@ -784,6 +797,7 @@ void LoadConfigFile() {
 				}
 			}
 			LogMessage( "LowDataRate=%s\n", ( Config.LoRaDevices[Channel].LowDataRateOptimize & 0x08 ) ? "ON" : "OFF" );
+			LogMessage( "Sync word=%x (default 0x12)\n", SYNC_VAL );
 		}
 	}
 
@@ -1081,7 +1095,7 @@ int main( int argc, char **argv ) {
 	for ( Channel = 0; Channel <= 1; Channel++ ) {
 		setupRFM98( Channel );
 		Config.LoRaDevices[Channel].LastPacketAt = time( NULL );
-		if (( Config.LoRaDevices[Channel].InUse ) && ( Config.LoRaDevices[Channel].SpeedMode != MODE_FSK ))
+		if (( Config.LoRaDevices[Channel].InUse )) // && ( Config.LoRaDevices[Channel].SpeedMode != MODE_FSK ))
 			wiringPiISR( Config.LoRaDevices[Channel].DIO0, INT_EDGE_RISING, Channel ? &gpioInterrupt1 : &gpioInterrupt0 );
 	}
 
@@ -1094,6 +1108,7 @@ int main( int argc, char **argv ) {
 					Message = packet[Channel];
 					Bytes = Message[0];
 					Message[0] = 0;
+					//if (hab2fsk) dostuff; else
 					if ( Bytes > 0 ) {
 						if ( Message[1] == 0xe6 ) // repeated SSDV
 							Message[1] = 0x66;
@@ -1108,6 +1123,7 @@ int main( int argc, char **argv ) {
 							ChannelPrintf( Channel, 3, 1, "Telemetry: %d bytes          ", Bytes );
 
 							char *nextmess = &Message[1];
+							// LogMessage( "%s\n", Message + 1 );
 							if ( ProcessLine( Channel, nextmess ) )	{
 								DoPositionCalcs( Channel );
 								char stats[100];
@@ -1203,6 +1219,7 @@ int main( int argc, char **argv ) {
 							Config.LoRaDevices[Channel].SSDVCount++;
 						} else
 						{
+							LogMessage( " Unknown type: %x\n", Message[1] );
 							Config.LoRaDevices[Channel].UnknownCount++;
 						}
 
