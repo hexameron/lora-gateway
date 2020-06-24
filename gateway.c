@@ -279,9 +279,10 @@ void hab2fsk( int Channel ) {
 
 	writeRegister( Channel, REG_CONF_CRC,	0x00);	// fixed length, no whitening, CRC off, no addressing
 	writeRegister( Channel, REG_CONF_2,	0x40);	// packet mode
-	//  writeRegister(REG_BITRATEH,		0xFA);	// 32MHz / 256 * 250  => 500 Hz
-	writeRegister( Channel, REG_BITRATEH,	0xD0);  // 600 Hz
-	writeRegister( Channel, REG_BITRATEL,	0x35);	// - but not exactly
+	writeRegister( Channel, REG_BITRATEH,	0xFA);	// 32MHz / 256 * 250  => 500 Hz
+	writeRegister( Channel, REG_BITRATEL,	0x00);
+	// writeRegister( Channel, REG_BITRATEH,0xD0);  // 600 Hz
+	// writeRegister( Channel, REG_BITRATEL,0x35);	// - but not exactly
 	writeRegister( Channel, REG_DEVL,	0x08);	// 7 * 120 Hz => 840 Hz
 	writeRegister( Channel, REG_PAYLOAD_LENGTH_FSK, FSK_DATABYTES);
 	writeRegister( Channel, REG_SYNC_CONF,	0x73);	// // restart,4 sync+on, preamble 5555
@@ -1108,7 +1109,65 @@ int main( int argc, char **argv ) {
 					Message = packet[Channel];
 					Bytes = Message[0];
 					Message[0] = 0;
-					//if (hab2fsk) dostuff; else
+
+					if (( Config.LoRaDevices[Channel].SpeedMode == MODE_FSK ) && (Bytes > 0)) {
+						struct SBinaryPacket BinaryPacket;
+						char Data[100], Sentence[100];
+						int position;
+			        		// unsigned hours, minutes, seconds;
+						int16_t user, temp, sats;
+						float volts;
+
+						Bytes = 0;	// mark message as read
+						memcpy( &BinaryPacket, &Message[1], sizeof( BinaryPacket ) );
+						scramble( (uint8_t *)&BinaryPacket, sizeof( BinaryPacket )); 
+
+						if ( BinaryPacket.Checksum == CRC16( (char *)&BinaryPacket, sizeof( BinaryPacket ) - 2 ) ) {
+							gray2bin( (uint8_t *)&BinaryPacket, sizeof( BinaryPacket ) - 2 );
+							strcpy( Config.LoRaDevices[Channel].Payload, Payloads[0xf & Message[1]].Payload );
+
+							Config.LoRaDevices[Channel].Seconds = (unsigned long) BinaryPacket.Biseconds * 2L;
+							Config.LoRaDevices[Channel].Counter = BinaryPacket.Counter;
+							// hours =  (BinaryPacket.Biseconds / 1800);
+							// minutes =  (BinaryPacket.Biseconds / 30) - (hours * 60);
+							// seconds =  2 * (BinaryPacket.Biseconds - (hours * 1800) - (minutes * 30));
+
+							position = ((int)(int8_t)BinaryPacket.Latitude[2] << 24) |
+								((uint8_t)BinaryPacket.Latitude[1] <<16) |
+								((uint8_t)BinaryPacket.Latitude[0] << 8);
+							Config.LoRaDevices[Channel].Latitude = (double)position * 1.0e-7;
+							position = ((int)(int8_t)BinaryPacket.Longitude[2] << 24) |
+								((uint8_t)BinaryPacket.Longitude[1] <<16) |
+								((uint8_t)BinaryPacket.Longitude[0] << 8);
+							Config.LoRaDevices[Channel].Longitude = (double)position * 1.0e-7 ;
+							Config.LoRaDevices[Channel].Altitude = BinaryPacket.Altitude;
+							user = BinaryPacket.User;
+							sats = (user & 0x3) << 2;	// 0,4,8,12
+							temp = (int8_t)user >> 2;	//-32 to 31
+							volts = 5.0f / 255.0f * (float)BinaryPacket.Voltage;
+
+							sprintf( Data, "%s,%u,%02d:%02d:%02d,%1.5f,%1.5f,%u,0,%u,%d,%0.2f",
+										 Payloads[0xf & BinaryPacket.PayloadID].Payload,
+										 BinaryPacket.Counter,
+										 (int)( Config.LoRaDevices[Channel].Seconds / 3600 ),
+										 (int)( ( Config.LoRaDevices[Channel].Seconds / 60 ) % 60 ),
+										 (int)( Config.LoRaDevices[Channel].Seconds % 60 ),
+										 Config.LoRaDevices[Channel].Latitude,
+										 Config.LoRaDevices[Channel].Longitude,
+										 Config.LoRaDevices[Channel].Altitude,
+										 sats, temp, volts );
+							sprintf( Sentence, "$$%s*%04X", Data, CRC16( Data, strlen( Data ) ) );
+
+							ChannelPrintf( Channel, 3, 1, "Binary Telemetry              " );
+							LogMessage( "Ch %d:%s\n",Channel, Sentence );
+							UploadTelemetryPacket( Sentence );
+							DoPositionCalcs( Channel );
+							Config.LoRaDevices[Channel].TelemetryCount++;
+						} else {
+							Config.LoRaDevices[Channel].BadCRCCount++;
+						}
+					}
+
 					if ( Bytes > 0 ) {
 						if ( Message[1] == 0xe6 ) // repeated SSDV
 							Message[1] = 0x66;

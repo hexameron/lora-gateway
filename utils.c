@@ -156,6 +156,48 @@ char to_hex( char code ) {
 	return hex[code & 0x0f];
 }
 
+/* Converts gray coded strings back to twos-compliment */
+void gray2bin( uint8_t *pos, uint8_t len) {
+	int i,j,x,out;
+
+	for (i=0; i<len; i++) {
+		out = pos[i] & (1<<7);
+		for (j=0; j<7; j++) {
+			x = 7 - j - 1;
+			out |= (pos[i] ^ (out >> 1)) & (1<< x);
+		}
+		pos[i] = out;
+	}
+}
+
+/* 16 bit DVB additive scrambler as per Wikpedia example */
+void scramble(unsigned char *inout, int nbytes)
+{
+    int nbits = nbytes*8;
+    int i, ibit, ibits, ibyte, ishift, mask;
+    uint16_t scrambler = 0x4a80;  /* init additive scrambler at start of every frame */
+    uint16_t scrambler_out;
+
+    /* in place modification of each bit */
+    for(i=0; i<nbits; i++) {
+        scrambler_out = ((scrambler & 0x2) >> 1) ^ (scrambler & 0x1);
+
+        /* modify i-th bit by xor-ing with scrambler output sequence */
+        ibyte = i/8;
+        ishift = i%8;
+        ibit = (inout[ibyte] >> ishift) & 0x1;
+        ibits = ibit ^ scrambler_out;
+
+        mask = 1 << ishift;
+        inout[ibyte] &= ~mask;                  // clear i-th bit
+        inout[ibyte] |= ibits << ishift;         // set to scrambled value
+
+        /* update scrambler */
+        scrambler >>= 1;
+        scrambler |= scrambler_out << 14;
+    }
+}
+
 /* Returns a url-encoded version of str */
 /* IMPORTANT: be sure to free() the returned string after use */
 char *url_encode( char *str ) {

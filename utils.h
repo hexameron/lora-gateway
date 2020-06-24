@@ -1,5 +1,7 @@
 #include <stdint.h>
 
+void gray2bin( uint8_t *pos, uint8_t len);
+void scramble(unsigned char *inout, int nbytes);
 char *url_encode( char *str );
 void UpdatePayloadLOG( char *payload );
 void UploadTelemetryPacket( char *Telemetry );
